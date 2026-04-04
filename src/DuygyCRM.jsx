@@ -1106,7 +1106,7 @@ function ContactCard({ contact: c, onStageChange, compact, onClickDetail }) {
         <div style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>{daysSince(c.lastContact)}g</div>
       </div>
       {!compact && (
-        <select style={S.stageSelect} value={c.stage} onChange={e => onStageChange(c.email, e.target.value)}>
+        <select style={S.stageSelect} value={c.stage} onClick={e => e.stopPropagation()} onChange={e => onStageChange(c.email, e.target.value)}>
           {Object.entries(STAGE_META).map(([s, m]) => (
             <option key={s} value={s}>{m.label}</option>
           ))}
