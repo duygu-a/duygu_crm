@@ -686,6 +686,8 @@ export default function DuygyCRM({ token, onLogout }) {
 
 // ── DASHBOARD ─────────────────────────────────────────────────
 function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
+  const [detailEmail, setDetailEmail] = useState(null)
+  const [detailCompany, setDetailCompany] = useState(null)
   const { sortKey, sortDir, toggle, sortFn } = useSortable('days', 'desc')
   const overdueGetters = {
     name: c => c.name, company: c => c.company, stage: c => c.stage,
@@ -754,8 +756,8 @@ function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
               <tbody>
                 {overdue.slice(0, 8).map(c => (
                   <tr key={c.email} style={S.tr}>
-                    <td style={S.td}><div style={{ fontWeight: 500 }}>{c.name}</div><div style={{ fontSize: 11, color: '#888' }}>{c.email}</div></td>
-                    <td style={S.td}>{c.company}</td>
+                    <td style={{ ...S.td, cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}><div style={{ fontWeight: 500, color: '#3B82F6' }}>{c.name}</div><div style={{ fontSize: 11, color: '#888' }}>{c.email}</div></td>
+                    <td style={{ ...S.td, cursor: 'pointer', color: '#3B82F6' }} onClick={() => setDetailCompany(c.company)}>{c.company}</td>
                     <td style={S.td}><StagePill stage={c.stage} /></td>
                     <td style={S.td}>{fmtDate(c.lastContact)}</td>
                     <td style={{ ...S.td, color: '#EF4444', fontWeight: 500 }}>{daysSince(c.lastContact)}g</td>
@@ -766,6 +768,8 @@ function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
           </div>
         </>
       )}
+      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} />}
+      {detailCompany && <CompanyDetailModal companyName={detailCompany} onClose={() => setDetailCompany(null)} />}
     </div>
   )
 }
