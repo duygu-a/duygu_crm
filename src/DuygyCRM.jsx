@@ -173,7 +173,72 @@ const classifyContact = (c) => {
   return 'reached_out'
 }
 
-// ── CACHE ─────────────────────────────────────────────────────
+// ── DB API helpers ───────────────────────────────────────────
+const dbSaveContacts = async (contacts) => {
+  try {
+    await fetch('/api/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contacts }),
+    })
+  } catch (e) { console.warn('DB contacts save hatası:', e) }
+}
+
+const dbLoadContacts = async () => {
+  try {
+    const res = await fetch('/api/contacts')
+    if (!res.ok) return null
+    const rows = await res.json()
+    // DB snake_case → frontend camelCase
+    return rows.map(r => ({
+      email: r.email, domain: r.domain, company: r.company, name: r.name,
+      stage: r.stage, sentCount: r.sent_count, receivedCount: r.received_count,
+      lastSent: r.last_sent, lastReceived: r.last_received,
+      firstContact: r.first_contact, lastContact: r.last_contact,
+      subject: r.subject, snippet: r.snippet,
+      threadId: r.thread_id, messageCount: r.message_count,
+    }))
+  } catch (e) { console.warn('DB contacts load hatası:', e); return null }
+}
+
+const dbSaveNotes = async (domain, notes) => {
+  try {
+    await fetch('/api/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, notes }),
+    })
+  } catch (e) { console.warn('DB notes save hatası:', e) }
+}
+
+const dbLoadNotes = async () => {
+  try {
+    const res = await fetch('/api/notes')
+    if (!res.ok) return {}
+    return await res.json()
+  } catch (e) { return {} }
+}
+
+const dbSaveLabelMap = async (labelMap) => {
+  try {
+    await fetch('/api/labels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ labelMap }),
+    })
+  } catch (e) { console.warn('DB labels save hatası:', e) }
+}
+
+const dbLoadLabelMap = async () => {
+  try {
+    const res = await fetch('/api/labels')
+    if (!res.ok) return null
+    const map = await res.json()
+    return Object.keys(map).length ? map : null
+  } catch (e) { return null }
+}
+
+// ── CACHE (localStorage fallback) ────────────────────────────
 const loadCache = () => {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
@@ -203,20 +268,45 @@ export default function DuygyCRM({ token, onLogout }) {
   const [notes, setNotes]           = useState({})
   const [labelMap, setLabelMap]     = useState(null) // { stage_name: gmail_label_id }
 
-  // İlk yükleme
+  // İlk yükleme — önce DB, yoksa localStorage fallback
   useEffect(() => {
-    const cache = loadCache()
-    if (cache?.contacts?.length) {
-      setContacts(cache.contacts)
-      setCompanies(cache.companies || {})
-      setNotes(cache.notes || {})
-      if (cache.labelMap) setLabelMap(cache.labelMap)
-      setLastSync(cache.savedAt)
-      setStatusMsg(`Cache: ${cache.contacts.length} kişi`)
-    } else {
-      setStatusMsg('Tam Tarama yap →')
-    }
-  }, [])
+    (async () => {
+      setStatusMsg('Veriler yükleniyor...')
+
+      // DB'den yükle
+      const [dbContacts, dbNotes, dbLabels] = await Promise.all([
+        dbLoadContacts(),
+        dbLoadNotes(),
+        dbLoadLabelMap(),
+      ])
+
+      if (dbContacts && dbContacts.length > 0) {
+        const comps = buildCompanies(dbContacts)
+        setContacts(dbContacts)
+        setCompanies(comps)
+        setNotes(dbNotes || {})
+        if (dbLabels) setLabelMap(dbLabels)
+        setLastSync(Date.now())
+        setStatusMsg(`DB: ${dbContacts.length} kişi`)
+        // localStorage'ı da güncelle (offline fallback)
+        saveCache({ contacts: dbContacts, companies: comps, notes: dbNotes || {}, labelMap: dbLabels })
+        return
+      }
+
+      // DB boşsa localStorage'dan dene
+      const cache = loadCache()
+      if (cache?.contacts?.length) {
+        setContacts(cache.contacts)
+        setCompanies(cache.companies || {})
+        setNotes(cache.notes || {})
+        if (cache.labelMap) setLabelMap(cache.labelMap)
+        setLastSync(cache.savedAt)
+        setStatusMsg(`Cache: ${cache.contacts.length} kişi`)
+      } else {
+        setStatusMsg('Tam Tarama yap →')
+      }
+    })()
+  }, [buildCompanies])
 
   // Mesaj listesinden contact/company yapısı
   // Hem gönderilen hem alınan mailleri işler
@@ -421,6 +511,9 @@ export default function DuygyCRM({ token, onLogout }) {
       setLastSync(Date.now())
 
       saveCache({ contacts: ctcts, companies: comps, notes, labelMap: stageToLabelId })
+      // DB'ye kaydet (arka planda)
+      dbSaveContacts(ctcts)
+      dbSaveLabelMap(stageToLabelId)
       setProgress(90)
 
       // Label'ları Gmail'e yaz (throttled)
@@ -477,6 +570,7 @@ export default function DuygyCRM({ token, onLogout }) {
         const comps   = buildCompanies(updated)
         setCompanies(comps)
         saveCache({ contacts: updated, companies: comps, notes })
+        dbSaveContacts(newC) // sadece değişen kişileri DB'ye yaz
         return updated
       })
       setLastSync(Date.now())
@@ -499,6 +593,9 @@ export default function DuygyCRM({ token, onLogout }) {
       const comps   = buildCompanies(updated)
       setCompanies(comps)
       saveCache({ contacts: updated, companies: comps, notes })
+      // DB'ye stage değişikliğini yaz
+      const updatedContact = updated.find(c => c.email === email)
+      if (updatedContact) dbSaveContacts([updatedContact])
       return updated
     })
 
@@ -804,10 +901,13 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
             placeholder="Bu şirket için notlar..."
             value={notes[sel.domain] || ''}
             onChange={e => {
-              const updated = { ...notes, [sel.domain]: e.target.value }
+              const val = e.target.value
+              const updated = { ...notes, [sel.domain]: val }
               setNotes(updated)
               const cache = loadCache()
               if (cache) saveCache({ ...cache, notes: updated })
+              // DB'ye kaydet (debounce olmadan, her tuşta)
+              dbSaveNotes(sel.domain, val)
             }}
           />
         </div>
