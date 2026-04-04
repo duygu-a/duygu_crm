@@ -45,18 +45,34 @@ export function clearToken() {
   localStorage.removeItem(EXPIRY_KEY)
 }
 
+// ── Cookie helpers ──────────────────────────────────────────
+function setCookie(name, value, minutes = 10) {
+  const expires = new Date(Date.now() + minutes * 60000).toUTCString()
+  document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires};path=/;SameSite=Lax;Secure`
+}
+
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'))
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+function deleteCookie(name) {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+}
+
 // ── Login ────────────────────────────────────────────────────
 export async function startLogin() {
   const verifier   = generateVerifier()
   const challenge  = await generateChallenge(verifier)
 
-  // Her iki storage'a da kaydet — fallback mekanizması
-  try { localStorage.setItem(VERIFIER_KEY, verifier) } catch (e) { console.warn('localStorage yazılamadı:', e) }
-  try { sessionStorage.setItem(VERIFIER_KEY, verifier) } catch (e) { console.warn('sessionStorage yazılamadı:', e) }
+  // 3 farklı yere kaydet — en az biri çalışacak
+  try { localStorage.setItem(VERIFIER_KEY, verifier) } catch (e) {}
+  try { sessionStorage.setItem(VERIFIER_KEY, verifier) } catch (e) {}
+  setCookie(VERIFIER_KEY, verifier)
 
-  // Doğrulama
-  const check = localStorage.getItem(VERIFIER_KEY)
-  console.log('Verifier saved:', !!check, 'Origin:', window.location.origin, 'Redirect URI:', REDIRECT_URI)
+  console.log('Verifier saved to localStorage:', !!localStorage.getItem(VERIFIER_KEY))
+  console.log('Verifier saved to sessionStorage:', !!sessionStorage.getItem(VERIFIER_KEY))
+  console.log('Verifier saved to cookie:', !!getCookie(VERIFIER_KEY))
 
   const params = new URLSearchParams({
     client_id:             CLIENT_ID,
@@ -76,21 +92,25 @@ export async function startLogin() {
 // Google desktop app type gerektirir veya backend proxy gerekir.
 // Bu proje için Vercel serverless function kullanıyoruz.
 export async function handleCallback(code) {
-  // localStorage ve sessionStorage'dan dene
-  const verifier = localStorage.getItem(VERIFIER_KEY) || sessionStorage.getItem(VERIFIER_KEY)
+  // 3 kaynaktan da dene
+  const fromLocal   = localStorage.getItem(VERIFIER_KEY)
+  const fromSession = sessionStorage.getItem(VERIFIER_KEY)
+  const fromCookie  = getCookie(VERIFIER_KEY)
+  const verifier    = fromLocal || fromSession || fromCookie
 
   console.log('handleCallback debug:', {
-    localStorage: !!localStorage.getItem(VERIFIER_KEY),
-    sessionStorage: !!sessionStorage.getItem(VERIFIER_KEY),
-    allLocalKeys: Object.keys(localStorage),
-    allSessionKeys: Object.keys(sessionStorage),
+    fromLocal: !!fromLocal,
+    fromSession: !!fromSession,
+    fromCookie: !!fromCookie,
+    cookies: document.cookie,
+    localKeys: Object.keys(localStorage),
+    sessionKeys: Object.keys(sessionStorage),
     origin: window.location.origin,
   })
 
   if (!verifier) {
     throw new Error(
-      'Code verifier bulunamadı. Tarayıcınız localStorage\'ı engelliyor olabilir. ' +
-      'Gizli sekme kullanıyorsanız normal sekmeye geçin.'
+      'Code verifier bulunamadı. localStorage, sessionStorage ve cookie üçü de boş.'
     )
   }
 
@@ -104,6 +124,7 @@ export async function handleCallback(code) {
   saveToken(data.access_token, data.expires_in)
   localStorage.removeItem(VERIFIER_KEY)
   sessionStorage.removeItem(VERIFIER_KEY)
+  deleteCookie(VERIFIER_KEY)
   return data.access_token
 }
 
