@@ -41,10 +41,47 @@ export default async function handler(req, res) {
       )
     `
 
+    // Excel'den gelen kişi bilgileri
+    await sql`
+      CREATE TABLE IF NOT EXISTS contacts_info (
+        id              TEXT PRIMARY KEY,
+        name            TEXT,
+        email           TEXT,
+        company         TEXT,
+        title           TEXT,
+        status          TEXT,
+        linkedin        TEXT,
+        linkedin_connected BOOLEAN DEFAULT FALSE,
+        reached_out_date TEXT,
+        last_mail_snippet TEXT,
+        source          TEXT,
+        notes           TEXT,
+        linkedin_status TEXT,
+        linkedin_date   TEXT,
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+
+    // Excel'den gelen şirket bilgileri
+    await sql`
+      CREATE TABLE IF NOT EXISTS companies_info (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        status     TEXT,
+        notes      TEXT,
+        website    TEXT,
+        linkedin   TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+
     await sql`CREATE INDEX IF NOT EXISTS idx_contacts_domain ON contacts(domain)`
     await sql`CREATE INDEX IF NOT EXISTS idx_contacts_stage ON contacts(stage)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_contacts_info_email ON contacts_info(email)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_contacts_info_company ON contacts_info(company)`
+    await sql`CREATE INDEX IF NOT EXISTS idx_companies_info_name ON companies_info(name)`
 
-    return res.status(200).json({ ok: true, message: 'Tablolar oluşturuldu' })
+    return res.status(200).json({ ok: true, message: 'Tüm tablolar oluşturuldu' })
   } catch (err) {
     console.error('DB setup hatası:', err)
     return res.status(500).json({ error: err.message })

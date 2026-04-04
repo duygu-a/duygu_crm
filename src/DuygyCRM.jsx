@@ -773,6 +773,7 @@ function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
 // ── PIPELINE ──────────────────────────────────────────────────
 function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, expStage, setExpStage, changeStage }) {
   const stages = pipeFilter === 'outcome' ? OUTCOME_STAGES : PIPELINE_STAGES
+  const [detailEmail, setDetailEmail] = useState(null)
   return (
     <div style={S.page}>
       <div style={{ display: 'flex', gap: 8, marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -796,7 +797,7 @@ function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, ex
                 {sc.length === 0
                   ? <div style={{ fontSize: 12, color: '#bbb', padding: '4px 0' }}>Boş</div>
                   : sc.slice(0, exp ? 999 : 3).map(c => (
-                      <ContactCard key={c.email} contact={c} onStageChange={changeStage} compact={!exp} />
+                      <ContactCard key={c.email} contact={c} onStageChange={changeStage} compact={!exp} onClickDetail={() => setDetailEmail(c.email)} />
                     ))
                 }
                 {!exp && sc.length > 3 && (
@@ -807,6 +808,7 @@ function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, ex
           )
         })}
       </div>
+      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} />}
     </div>
   )
 }
@@ -868,6 +870,8 @@ function DailySection({ title, contacts, color, urgent }) {
 // ── COMPANIES ─────────────────────────────────────────────────
 function Companies({ companies, selCompany, setSelCompany, notes, setNotes, changeStage }) {
   const [search, setSearch] = useState('')
+  const [detailCompany, setDetailCompany] = useState(null)
+  const [detailEmail, setDetailEmail] = useState(null)
   const { sortKey, sortDir, toggle, sortFn } = useSortable('date', 'desc')
   const compGetters = {
     company: c => c.name, domain: c => c.domain, stage: c => c.stage,
@@ -893,7 +897,7 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
             <tbody>
               {list.map(c => (
                 <tr key={c.domain} style={{ ...S.tr, cursor: 'pointer', background: selCompany === c.domain ? '#F5EFE6' : '' }} onClick={() => setSelCompany(c.domain)}>
-                  <td style={{ ...S.td, fontWeight: 500 }}>{c.name}</td>
+                  <td style={{ ...S.td, fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={(e) => { e.stopPropagation(); setDetailCompany(c.name) }}>{c.name}</td>
                   <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{c.domain}</td>
                   <td style={S.td}><StagePill stage={c.stage} /></td>
                   <td style={S.td}>{c.contacts.length}</td>
@@ -919,7 +923,7 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
 
           <div style={{ ...S.sTitle, marginTop: '1rem' }}>Kişiler ({sel.contacts.length})</div>
           {sel.contacts.map(c => (
-            <div key={c.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #F5EFE6' }}>
+            <div key={c.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #F5EFE6', cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}>
               <div style={S.avatar}>{initials(c.name)}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
@@ -946,6 +950,8 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
           />
         </div>
       )}
+      {detailCompany && <CompanyDetailModal companyName={detailCompany} onClose={() => setDetailCompany(null)} />}
+      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} />}
     </div>
   )
 }
@@ -1058,9 +1064,9 @@ function SortTh({ label, sortKey, currentKey, currentDir, onToggle }) {
 }
 
 // ── CONTACT CARD ──────────────────────────────────────────────
-function ContactCard({ contact: c, onStageChange, compact }) {
+function ContactCard({ contact: c, onStageChange, compact, onClickDetail }) {
   return (
-    <div style={{ background: '#F5EFE6', borderRadius: 8, padding: '8px 10px' }}>
+    <div style={{ background: '#F5EFE6', borderRadius: 8, padding: '8px 10px', cursor: 'pointer' }} onClick={() => onClickDetail?.()}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ ...S.avatar, width: 28, height: 28, fontSize: 11, flexShrink: 0 }}>{initials(c.name)}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1133,6 +1139,225 @@ const S = {
   avatar:     { width: 34, height: 34, borderRadius: '50%', background: '#E4DBD3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: '#6B5C4C', flexShrink: 0 },
   noteArea:   { width: '100%', minHeight: 80, padding: '8px 10px', border: '1px solid #E4DBD3', borderRadius: 8, fontSize: 12, background: '#FAF4EB', color: '#050500', resize: 'vertical', outline: 'none', fontFamily: 'inherit', marginTop: 6 },
   stageSelect:{ width: '100%', fontSize: 11, padding: '3px 6px', border: '1px solid #E4DBD3', borderRadius: 6, background: '#FFFFFF', color: '#050500', cursor: 'pointer', marginTop: 6 },
+}
+
+// ── KİŞİ DETAY MODAL ─────────────────────────────────────────
+function ContactDetailModal({ email, onClose }) {
+  const [info, setInfo] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({})
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!email) return
+    fetch(`/api/contacts-info?email=${encodeURIComponent(email)}`)
+      .then(r => r.json())
+      .then(rows => {
+        if (rows.length > 0) {
+          setInfo(rows[0])
+          setForm(rows[0])
+        } else {
+          // DB'de yoksa boş form
+          const blank = { id: '', name: '', email, company: '', title: '', status: '', linkedin: '', linkedin_connected: false, reached_out_date: '', last_mail_snippet: '', source: '', notes: '', linkedin_status: '', linkedin_date: '' }
+          setInfo(null)
+          setForm(blank)
+          setEditing(true)
+        }
+      })
+      .catch(() => setInfo(null))
+  }, [email])
+
+  const save = async () => {
+    setSaving(true)
+    await fetch('/api/contacts-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
+    })
+    setInfo(form)
+    setEditing(false)
+    setSaving(false)
+  }
+
+  if (!email) return null
+
+  const fields = [
+    ['name', 'Ad Soyad'], ['email', 'Email'], ['company', 'Şirket'],
+    ['title', 'Ünvan'], ['status', 'Durum'], ['linkedin', 'LinkedIn'],
+    ['linkedin_status', 'LinkedIn Durumu'], ['reached_out_date', 'İlk İletişim'],
+    ['source', 'Kaynak'], ['notes', 'Not'],
+  ]
+
+  return (
+    <div style={MS.overlay} onClick={onClose}>
+      <div style={MS.modal} onClick={e => e.stopPropagation()}>
+        <div style={MS.header}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Kişi Kartı</span>
+          <button style={MS.closeBtn} onClick={onClose}>✕</button>
+        </div>
+
+        {!editing ? (
+          <>
+            <div style={MS.infoGrid}>
+              {fields.map(([key, label]) => {
+                const val = info?.[key]
+                if (!val) return null
+                return (
+                  <div key={key} style={MS.field}>
+                    <div style={MS.fieldLabel}>{label}</div>
+                    <div style={MS.fieldValue}>
+                      {key === 'linkedin' ? <a href={val} target="_blank" rel="noreferrer" style={{ color: '#3B82F6', fontSize: 12 }}>Profili Aç</a> : val}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <button style={{ ...S.btn, marginTop: 12, width: '100%' }} onClick={() => setEditing(true)}>Düzenle</button>
+          </>
+        ) : (
+          <>
+            <div style={MS.infoGrid}>
+              {fields.map(([key, label]) => (
+                <div key={key} style={MS.field}>
+                  <div style={MS.fieldLabel}>{label}</div>
+                  {key === 'notes' ? (
+                    <textarea style={MS.textarea} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                  ) : (
+                    <input style={MS.input} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button style={{ ...S.btn, ...S.btnPrimary, flex: 1 }} onClick={save} disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              <button style={{ ...S.btn, flex: 1 }} onClick={() => { setForm(info || {}); setEditing(false) }}>İptal</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── ŞİRKET DETAY MODAL ──────────────────────────────────────
+function CompanyDetailModal({ companyName, onClose }) {
+  const [info, setInfo] = useState(null)
+  const [contacts, setContacts] = useState([])
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({})
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!companyName) return
+    fetch(`/api/companies-info?name=${encodeURIComponent(companyName)}`)
+      .then(r => r.json())
+      .then(rows => {
+        if (rows.length > 0) { setInfo(rows[0]); setForm(rows[0]) }
+        else {
+          const blank = { id: '', name: companyName, status: '', notes: '', website: '', linkedin: '' }
+          setInfo(null); setForm(blank); setEditing(true)
+        }
+      })
+    fetch(`/api/contacts-info?company=${encodeURIComponent(companyName)}`)
+      .then(r => r.json()).then(setContacts)
+  }, [companyName])
+
+  const save = async () => {
+    setSaving(true)
+    await fetch('/api/companies-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
+    })
+    setInfo(form); setEditing(false); setSaving(false)
+  }
+
+  if (!companyName) return null
+
+  const fields = [
+    ['name', 'Şirket Adı'], ['status', 'Durum'],
+    ['website', 'Website'], ['linkedin', 'LinkedIn'], ['notes', 'Not'],
+  ]
+
+  return (
+    <div style={MS.overlay} onClick={onClose}>
+      <div style={{ ...MS.modal, maxWidth: 600 }} onClick={e => e.stopPropagation()}>
+        <div style={MS.header}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>{companyName}</span>
+          <button style={MS.closeBtn} onClick={onClose}>✕</button>
+        </div>
+
+        {!editing ? (
+          <>
+            <div style={MS.infoGrid}>
+              {fields.map(([key, label]) => {
+                const val = info?.[key]
+                if (!val) return null
+                return (
+                  <div key={key} style={MS.field}>
+                    <div style={MS.fieldLabel}>{label}</div>
+                    <div style={MS.fieldValue}>
+                      {(key === 'linkedin' || key === 'website') ? <a href={val} target="_blank" rel="noreferrer" style={{ color: '#3B82F6', fontSize: 12 }}>{val}</a> : val}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <button style={{ ...S.btn, marginTop: 12, width: '100%' }} onClick={() => setEditing(true)}>Düzenle</button>
+          </>
+        ) : (
+          <>
+            <div style={MS.infoGrid}>
+              {fields.map(([key, label]) => (
+                <div key={key} style={MS.field}>
+                  <div style={MS.fieldLabel}>{label}</div>
+                  {key === 'notes' ? (
+                    <textarea style={MS.textarea} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                  ) : (
+                    <input style={MS.input} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button style={{ ...S.btn, ...S.btnPrimary, flex: 1 }} onClick={save} disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              <button style={{ ...S.btn, flex: 1 }} onClick={() => { setForm(info || {}); setEditing(false) }}>İptal</button>
+            </div>
+          </>
+        )}
+
+        {contacts.length > 0 && (
+          <>
+            <div style={{ ...S.sTitle, marginTop: 20 }}>Kişiler ({contacts.length})</div>
+            {contacts.map(c => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #F5EFE6', fontSize: 13 }}>
+                <div style={{ ...S.avatar, width: 26, height: 26, fontSize: 10 }}>{initials(c.name)}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500 }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: '#888' }}>{c.title}</div>
+                </div>
+                <div style={{ fontSize: 11, color: '#888' }}>{c.status}</div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── MODAL STYLES ─────────────────────────────────────────────
+const MS = {
+  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  modal: { background: '#FFFFFF', borderRadius: 14, padding: '1.5rem', maxWidth: 480, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#888', padding: 4 },
+  infoGrid: { display: 'flex', flexDirection: 'column', gap: 10 },
+  field: {},
+  fieldLabel: { fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 },
+  fieldValue: { fontSize: 13, color: '#050500' },
+  input: { width: '100%', padding: '6px 10px', fontSize: 13, border: '1px solid #E4DBD3', borderRadius: 6, background: '#FAF4EB', color: '#050500', outline: 'none', boxSizing: 'border-box' },
+  textarea: { width: '100%', minHeight: 60, padding: '6px 10px', fontSize: 13, border: '1px solid #E4DBD3', borderRadius: 6, background: '#FAF4EB', color: '#050500', outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' },
 }
 
 // ── YARDIMCI ──────────────────────────────────────────────────
