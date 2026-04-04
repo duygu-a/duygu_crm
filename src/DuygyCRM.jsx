@@ -489,7 +489,7 @@ export default function DuygyCRM({ token, onLogout }) {
   const [statusMsg, setStatusMsg]   = useState('')
   const [lastSync, setLastSync]     = useState(null)
   const [searchQ, setSearchQ]       = useState('')
-  const [selCompany, setSelCompany] = useState(null)
+  const [selCompanies, setSelCompanies] = useState(new Set())
   const [notes, setNotes]           = useState({})
   const [labelMap, setLabelMap]     = useState(null)
   const [gmailDd, setGmailDd]      = useState(false)
@@ -1010,7 +1010,7 @@ export default function DuygyCRM({ token, onLogout }) {
         {tab === 'Dashboard'  && <DashboardPage contacts={contacts} stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} changeStage={changeStage} onNavigate={setTab} />}
         {tab === 'Pipeline'   && <PipelinePage contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
         {tab === 'Daily'      && <DailyPage contacts={contacts} overdue={overdue} />}
-        {tab === 'Companies'  && <CompaniesPage companies={companies} selCompany={selCompany} setSelCompany={setSelCompany} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
+        {tab === 'Companies'  && <CompaniesPage companies={companies} selCompanies={selCompanies} setSelCompanies={setSelCompanies} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
         {tab === 'Performans' && <PerformansPage contacts={contacts} stats={stats} />}
       </main>
     </div>
@@ -1380,7 +1380,7 @@ function DailyPage({ contacts, overdue }) {
 
 // ═══════════════ COMPANIES ═══════════════
 
-function CompaniesPage({ companies, selCompany, setSelCompany, notes, setNotes, changeStage, updateContactInfo }) {
+function CompaniesPage({ companies, selCompanies, setSelCompanies, notes, setNotes, changeStage, updateContactInfo }) {
   const [search, setSearch] = useState('')
   const [detailCompany, setDetailCompany] = useState(null)
   const [detailEmail, setDetailEmail] = useState(null)
@@ -1403,24 +1403,51 @@ function CompaniesPage({ companies, selCompany, setSelCompany, notes, setNotes, 
     !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.domain.includes(search.toLowerCase())
   )
   const list = sortFn(filtered, compGetters)
-  const sel = selCompany ? companies[selCompany] : null
 
-  const statusColor = (s) => {
-    if (!s) return 'gray'
-    if (s.includes('follow_up')) return 'amber'
-    if (s === 'needs_reply') return 'amber'
-    if (s === 'meeting_scheduled' || s === 'meeting_held' || s === 'processing_meeting') return 'green'
-    if (s === 'reached_out') return 'blue'
-    if (s === 'not_interested' || s === 'bounce') return 'red'
-    return 'gray'
+  const toggleSelect = (key) => {
+    setSelCompanies(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
+
+  const selectAll = () => {
+    if (selCompanies.size === list.length) setSelCompanies(new Set())
+    else setSelCompanies(new Set(list.map(c => c.name.toLowerCase())))
+  }
+
+  const bulkChangeStage = (newStage) => {
+    selCompanies.forEach(key => {
+      const co = companies[key]
+      if (co) co.contacts.forEach(ct => changeStage(ct.email, newStage))
+    })
+  }
+
+  // Tek şirket seçiliyse detay paneli göster
+  const singleSel = selCompanies.size === 1 ? companies[[...selCompanies][0]] : null
 
   return (
     <>
       <DateFilter period={period} onPeriodChange={setPeriod} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
+
+      {/* Toplu İşlem Bar */}
+      {selCompanies.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, padding: '10px 16px', background: C.white, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          <Badge color="blue">{selCompanies.size} şirket seçili</Badge>
+          <span style={{ fontSize: 12, color: C.muted }}>Toplu Stage:</span>
+          <select style={{ fontSize: 11, padding: '4px 8px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} defaultValue="" onChange={e => { if (e.target.value) { bulkChangeStage(e.target.value); e.target.value = '' } }}>
+            <option value="" disabled>Stage Seç...</option>
+            {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+          </select>
+          <button onClick={() => setSelCompanies(new Set())} style={{ marginLeft: 'auto', fontSize: 11, color: C.muted, background: C.bg2, padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 500, fontFamily: 'inherit' }}>Seçimi Temizle</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 16, minHeight: 500 }}>
         {/* Sol: Tablo */}
-        <div style={{ flex: sel ? '0 0 55%' : 1 }}>
+        <div style={{ flex: singleSel ? '0 0 55%' : 1 }}>
           <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Şirket Ara..." style={{ flex: 1, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', background: C.white, outline: 'none', color: C.text }} />
           </div>
@@ -1429,56 +1456,66 @@ function CompaniesPage({ companies, selCompany, setSelCompany, notes, setNotes, 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <th style={{ padding: '10px 10px 10px 14px', width: 30 }}>
+                    <input type="checkbox" checked={list.length > 0 && selCompanies.size === list.length} onChange={selectAll} style={{ cursor: 'pointer' }} />
+                  </th>
                   {[['company','Şirket Adı'],['domain','Domain'],['stage','Statü'],['count','Kişi'],['date','Son İletişim']].map(([k,l]) =>
                     <SortTh key={k} label={l} sortKey={k} currentKey={sortKey} currentDir={sortDir} onToggle={toggle} />
                   )}
                 </tr>
               </thead>
               <tbody>
-                {list.map(c => (
-                  <tr key={c.name} onClick={() => setSelCompany(c.name.toLowerCase())} style={{ borderBottom: `1px solid ${C.bg2}`, cursor: 'pointer', background: selCompany === c.name.toLowerCase() ? C.bg2 : 'transparent', transition: 'background 0.1s' }}
-                    onMouseEnter={e => { if (selCompany !== c.name.toLowerCase()) e.currentTarget.style.background = C.bg }}
-                    onMouseLeave={e => { if (selCompany !== c.name.toLowerCase()) e.currentTarget.style.background = 'transparent' }}>
-                    <td style={{ padding: '10px 14px', fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={(e) => { e.stopPropagation(); setDetailCompany(c.name) }}>{c.name}</td>
-                    <td style={{ padding: '10px 14px', color: C.muted, fontSize: 11.5 }}>{c.domain}</td>
-                    <td style={{ padding: '10px 14px' }} onClick={e => e.stopPropagation()}>
-                      <select style={{ fontSize: 11, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} value={c.stage} onChange={e => {
-                        const newStage = e.target.value
-                        c.contacts.forEach(ct => changeStage(ct.email, newStage))
-                      }}>
-                        {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
-                      </select>
-                    </td>
-                    <td style={{ padding: '10px 14px', textAlign: 'center' }}>{c.contacts.length}</td>
-                    <td style={{ padding: '10px 14px', color: C.muted }}>{fmtDate(c.lastContact)}</td>
-                  </tr>
-                ))}
+                {list.map(c => {
+                  const key = c.name.toLowerCase()
+                  const isSelected = selCompanies.has(key)
+                  return (
+                    <tr key={c.name} onClick={() => toggleSelect(key)} style={{ borderBottom: `1px solid ${C.bg2}`, cursor: 'pointer', background: isSelected ? C.bg2 : 'transparent', transition: 'background 0.1s' }}
+                      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = C.bg }}
+                      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}>
+                      <td style={{ padding: '10px 10px 10px 14px', width: 30 }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(key)} style={{ cursor: 'pointer' }} />
+                      </td>
+                      <td style={{ padding: '10px 14px', fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={(e) => { e.stopPropagation(); setDetailCompany(c.name) }}>{c.name}</td>
+                      <td style={{ padding: '10px 14px', color: C.muted, fontSize: 11.5 }}>{c.domain}</td>
+                      <td style={{ padding: '10px 14px' }} onClick={e => e.stopPropagation()}>
+                        <select style={{ fontSize: 11, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} value={c.stage} onChange={e => {
+                          const newStage = e.target.value
+                          c.contacts.forEach(ct => changeStage(ct.email, newStage))
+                        }}>
+                          {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'center' }}>{c.contacts.length}</td>
+                      <td style={{ padding: '10px 14px', color: C.muted }}>{fmtDate(c.lastContact)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </Card>
         </div>
 
-        {/* Sağ: Detay Paneli */}
-        {sel && (
+        {/* Sağ: Detay Paneli (tek seçimde) */}
+        {singleSel && (
           <div style={{ flex: '0 0 43%', position: 'sticky', top: 70, alignSelf: 'flex-start' }}>
             <Card>
               <div style={{ padding: '16px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{sel.name}</div>
-                  <div style={{ fontSize: 11.5, color: C.muted }}>{sel.domain}</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{singleSel.name}</div>
+                  <div style={{ fontSize: 11.5, color: C.muted }}>{singleSel.domain}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <Badge color={statusColor(sel.stage)}>{STAGE_META[sel.stage]?.label || sel.stage}</Badge>
-                  <button onClick={() => setSelCompany(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: C.muted, cursor: 'pointer', lineHeight: 1 }}>×</button>
+                  <StagePill stage={singleSel.stage} />
+                  <button onClick={() => setSelCompanies(new Set())} style={{ background: 'none', border: 'none', fontSize: 16, color: C.muted, cursor: 'pointer', lineHeight: 1 }}>×</button>
                 </div>
               </div>
 
               <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 500 }}>Kişiler ({sel.contacts.length})</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 500 }}>Kişiler ({singleSel.contacts.length})</span>
                 </div>
-                {sel.contacts.map((c, i) => (
-                  <div key={c.email} style={{ padding: '8px 0', borderBottom: i < sel.contacts.length - 1 ? `1px solid ${C.bg2}` : 'none', cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}>
+                {singleSel.contacts.map((c, i) => (
+                  <div key={c.email} style={{ padding: '8px 0', borderBottom: i < singleSel.contacts.length - 1 ? `1px solid ${C.bg2}` : 'none', cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 12.5, fontWeight: 500 }}>{c.name}</span>
                       <StagePill stage={c.stage} small />
@@ -1491,14 +1528,14 @@ function CompaniesPage({ companies, selCompany, setSelCompany, notes, setNotes, 
 
               <div style={{ padding: '10px 18px' }}>
                 <textarea placeholder="Not Ekle..." style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit', resize: 'vertical', minHeight: 50, outline: 'none', background: C.bg2, color: C.text, boxSizing: 'border-box' }}
-                  value={notes[sel.domain] || ''}
+                  value={notes[singleSel.domain] || ''}
                   onChange={e => {
                     const val = e.target.value
-                    const updated = { ...notes, [sel.domain]: val }
+                    const updated = { ...notes, [singleSel.domain]: val }
                     setNotes(updated)
                     const cache = loadCache()
                     if (cache) saveCache({ ...cache, notes: updated })
-                    dbSaveNotes(sel.domain, val)
+                    dbSaveNotes(singleSel.domain, val)
                   }}
                 />
               </div>
