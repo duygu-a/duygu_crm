@@ -1196,6 +1196,7 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
   const [endDate, setEndDate] = useState('2026-04-04')
   const [selectedStage, setSelectedStage] = useState(null)
   const [detailEmail, setDetailEmail] = useState(null)
+  const [showLimit, setShowLimit] = useState(20)
 
   // Tarih filtresi
   const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
@@ -1213,7 +1214,7 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
 
   return (
     <>
-      <DateFilter period={period} onPeriodChange={(p) => { setPeriod(p); setSelectedStage(null) }} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
+      <DateFilter period={period} onPeriodChange={(p) => { setPeriod(p); setSelectedStage(null); setShowLimit(20) }} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
 
       {/* Kanal Filtresi + Arama */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -1226,7 +1227,7 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
         {stageGroups.map((s) => {
           const isSelected = selectedStage === s.key
           return (
-            <div key={s.key} onClick={() => setSelectedStage(isSelected ? null : s.key)} style={{
+            <div key={s.key} onClick={() => { setSelectedStage(isSelected ? null : s.key); setShowLimit(20) }} style={{
               background: C.white, borderRadius: 10,
               border: `1.5px solid ${isSelected ? C.text : C.border}`,
               cursor: 'pointer', padding: '16px 18px',
@@ -1268,7 +1269,7 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
               </tr>
             </thead>
             <tbody>
-              {activeStage.contacts.slice(0, 20).map((c) => (
+              {activeStage.contacts.slice(0, showLimit).map((c) => (
                 <tr key={c.email} style={{ borderBottom: `1px solid ${C.bg2}` }}>
                   <td style={{ padding: '10px 18px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={() => setDetailEmail(c.email)}>{c.name}</td>
                   <td style={{ padding: '10px 18px', fontSize: 12, color: C.muted }}>{c.company}</td>
@@ -1283,9 +1284,9 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
               ))}
             </tbody>
           </table>
-          {activeStage.count > 20 && (
-            <div style={{ padding: '10px 18px', fontSize: 11, color: C.muted, borderTop: `1px solid ${C.bg2}` }}>
-              +{activeStage.count - 20} Kişi Daha...
+          {activeStage.count > showLimit && (
+            <div onClick={() => setShowLimit(prev => prev + 30)} style={{ padding: '10px 18px', fontSize: 11.5, color: '#3B82F6', borderTop: `1px solid ${C.bg2}`, cursor: 'pointer', fontWeight: 500, textAlign: 'center' }}>
+              +{activeStage.count - showLimit} Kişi Daha Yükle
             </div>
           )}
         </Card>
