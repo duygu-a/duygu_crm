@@ -120,6 +120,97 @@ const stageFromLabels = labelIds => {
   return null
 }
 
+// Label yoksa snippet + subject + cc'ye bakarak classify et
+const classifyMessage = (snippet, subject, from, to, cc, labels, date) => {
+  const s = (snippet || '').toLowerCase()
+  const sub = (subject || '').toLowerCase()
+  const f = (from || '').toLowerCase()
+  const c = (cc || '').toLowerCase()
+  const allLabels = labels || []
+
+  // Bounce
+  if (f.includes('mailer-daemon') || f.includes('postmaster') ||
+      sub.includes('delivery status') || sub.includes('undeliverable') ||
+      sub.includes('mail delivery failed') || sub.includes('returned mail'))
+    return 'bounce'
+
+  // Out Of Office
+  if (sub.includes('out of office') || sub.includes('otomatik yanıt') ||
+      sub.includes('automatic reply') || sub.includes('dışarıda') ||
+      sub.includes('izinde') || s.includes('out of office') ||
+      s.includes('otomatik yanıt'))
+    return 'out_of_office'
+
+  // Wrong Person
+  if (s.includes('yanlış kişi') || s.includes('ben değilim') ||
+      s.includes('sorumlu değil') || s.includes('başka birine yönlendiriyorum'))
+    return 'wrong_person'
+
+  // Not Interested
+  if (s.includes('ilgilenmiyoruz') || s.includes('ilgilenmiyorum') ||
+      s.includes('ihtiyacımız yok') || s.includes('gündemimizde değil') ||
+      s.includes('şu an için değil') || s.includes('not interested'))
+    return 'not_interested'
+
+  // Competitor
+  if (s.includes('babbel') || s.includes('duolingo') || s.includes('rosetta') ||
+      s.includes('başka bir platform') || s.includes('farklı bir çözüm'))
+    return 'competitor'
+
+  // Reschedule
+  if (s.includes('reschedule') || s.includes('ertelemek') ||
+      s.includes('ertelememiz') || s.includes('başka bir güne') ||
+      s.includes('acil bir durum sebebiyle ertelemeniz'))
+    return 'reschedule'
+
+  // Meeting Held — Cc'de batuhan/kemal/tugba VAR + toplantı konuşuluyor
+  if ((c.includes('batuhan@cambly.com') || c.includes('kemal@cambly.com') || c.includes('tugba@cambly.com')) &&
+      (s.includes('toplantı') || s.includes('davetiye') || s.includes('görüşme') || s.includes('meeting')))
+    return 'meeting_held'
+
+  // Meeting Scheduled
+  if (s.includes('toplantı oluşturdum') || s.includes('davetiye gönderdim') ||
+      s.includes('davetiyesini paylaştı') || s.includes('için toplantı oluşturd') ||
+      (s.includes('saat') && s.includes('için') && s.includes('oluşturdum')))
+    return 'meeting_scheduled'
+
+  // Processing - Meeting (müsaitlik konuşuluyor)
+  if (s.includes('müsaitlik') || s.includes('müsait misiniz') ||
+      s.includes('hangi gün') || s.includes('uygun olur mu') ||
+      s.includes('ne zaman uygun') || s.includes('saat kaçta') ||
+      s.includes('takvim'))
+    return 'processing_meeting'
+
+  // B2C Campaign
+  if (sub.includes('cambly invoices') || sub.includes('invoices —') ||
+      sub.includes('english training at') || sub.includes('english development at') ||
+      sub.includes('english benefit at'))
+    return 'b2c_campaign'
+
+  // 2. Follow Up — breakup mesajları
+  if (s.includes('birkaç kez ulaşmaya çalıştım') ||
+      s.includes('doğrudan konuya gelmek') ||
+      s.includes('son bir not') ||
+      s.includes('bu yüzden doğrudan'))
+    return 'follow_up_2'
+
+  // 1. Follow Up
+  if (s.includes('farklı bir açıdan tekrar') ||
+      s.includes('düşünerek tekrar ulaşmak') ||
+      s.includes('gündemine denk gelmemiş olabilece') ||
+      s.includes('tekrar ulaşmak istedim'))
+    return 'follow_up_1'
+
+  // No Answer — 7+ gün geçmiş
+  if (date) {
+    const days = Math.floor((Date.now() - new Date(date).getTime()) / 86400000)
+    if (days >= 7) return 'no_answer'
+  }
+
+  // Default
+  return 'reached_out'
+}
+
 // ── CACHE ─────────────────────────────────────────────────────
 const loadCache = () => {
   try {
@@ -164,7 +255,7 @@ export default function DuygyCRM({ token, onLogout }) {
   }, [])
 
   // Mesaj listesinden contact/company yapısı
-  const buildData = useCallback((messages) => {
+  const buildData = useCallback((messages, labelWriteQueue = []) => {
     const map = {}
     messages.forEach(msg => {
       const headers = msg.payload?.headers || []
@@ -183,8 +274,15 @@ export default function DuygyCRM({ token, onLogout }) {
 
       if (!toEmails.length) return
 
-      const stage = stageFromLabels(labels)
-      if (!stage) return
+      const cc    = hdr(headers, 'Cc').toLowerCase()
+      const fromLabel = stageFromLabels(labels)
+      const stage = fromLabel || classifyMessage(snippet, subject, from, to, cc, labels, date)
+
+      // Label yoksa threadId'yi yazma kuyruğuna al
+      if (!fromLabel && msg.threadId) {
+        const labelId = STAGE_TO_LABEL[stage]
+        if (labelId) labelWriteQueue.push({ threadId: msg.threadId, labelId })
+      }
 
       toEmails.forEach(email => {
         const key    = email.toLowerCase()
@@ -259,7 +357,8 @@ export default function DuygyCRM({ token, onLogout }) {
       setProgress(80)
       setStatusMsg('Veriler işleniyor...')
 
-      const ctcts = buildData(allMsgs)
+      const labelWriteQueue = []
+      const ctcts = buildData(allMsgs, labelWriteQueue)
       const comps = buildCompanies(ctcts)
 
       setContacts(ctcts)
@@ -267,8 +366,28 @@ export default function DuygyCRM({ token, onLogout }) {
       setLastSync(Date.now())
 
       saveCache({ contacts: ctcts, companies: comps, notes })
+      setProgress(95)
+
+      // Label'ları Gmail'e yaz (batch, arka planda)
+      if (labelWriteQueue.length > 0) {
+        setStatusMsg(`Gmail'e ${labelWriteQueue.length} etiket yazılıyor...`)
+        const allLabelIds = Object.values(LABEL_IDS)
+        let written = 0
+        // Duplicate thread'leri filtrele
+        const uniqueQueue = labelWriteQueue.filter((item, idx, arr) =>
+          arr.findIndex(x => x.threadId === item.threadId) === idx
+        )
+        for (const { threadId, labelId } of uniqueQueue) {
+          try {
+            await gmailModifyThread(token, threadId, [labelId], allLabelIds.filter(id => id !== labelId))
+            written++
+          } catch (e) { /* sessizce devam */ }
+        }
+        setStatusMsg(`✓ ${ctcts.length} kişi — ${written} etiket Gmail'e yazıldı`)
+      } else {
+        setStatusMsg(`✓ ${ctcts.length} kişi, ${Object.keys(comps).length} şirket`)
+      }
       setProgress(100)
-      setStatusMsg(`✓ ${ctcts.length} kişi, ${Object.keys(comps).length} şirket`)
     } catch (err) {
       if (err.message === 'TOKEN_EXPIRED') onLogout()
       else setStatusMsg('Hata: ' + err.message)

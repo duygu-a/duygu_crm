@@ -50,6 +50,7 @@ export async function startLogin() {
   const verifier   = generateVerifier()
   const challenge  = await generateChallenge(verifier)
   localStorage.setItem(VERIFIER_KEY, verifier)
+  console.log('Verifier saved. Origin:', window.location.origin, 'Redirect URI:', REDIRECT_URI)
 
   const params = new URLSearchParams({
     client_id:             CLIENT_ID,
@@ -70,7 +71,17 @@ export async function startLogin() {
 // Bu proje için Vercel serverless function kullanıyoruz.
 export async function handleCallback(code) {
   const verifier = localStorage.getItem(VERIFIER_KEY)
-  if (!verifier) throw new Error('Code verifier bulunamadı')
+  if (!verifier) {
+    // Debug: localStorage'daki tüm key'leri kontrol et
+    const keys = Object.keys(localStorage)
+    console.error('localStorage keys:', keys)
+    console.error('Current origin:', window.location.origin)
+    throw new Error(
+      'Code verifier bulunamadı. ' +
+      'Login başlatılan origin ile callback origin farklı olabilir. ' +
+      'Origin: ' + window.location.origin
+    )
+  }
 
   const res = await fetch('/api/token', {
     method: 'POST',

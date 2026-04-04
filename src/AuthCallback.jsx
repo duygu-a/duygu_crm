@@ -25,6 +25,7 @@ export default function AuthCallback() {
         setTimeout(() => window.location.href = '/', 1000)
       })
       .catch(err => {
+        console.error('Callback hatası:', err)
         setStatus('Hata: ' + err.message)
       })
   }, [])
