@@ -41,6 +41,29 @@ const PIPELINE_STAGES = ALL_STAGES
 const KPI = { meetings: 156, pipeline: 3100000 }
 const TABS = ['Dashboard', 'Pipeline', 'Daily', 'Companies', 'Performans']
 
+// ── FİLTRELENECEK DOMAİNLER (sistem/araç mailleri) ──────────
+const IGNORED_DOMAINS = [
+  'cambly.com', 'mailer-daemon',
+  // Google sistem
+  'google.com', 'googlemail.com', 'gmail.com',
+  'docs.google.com', 'drive.google.com', 'calendar.google.com',
+  'autoreply.mail.google.com', 'notifications.google.com',
+  // Araçlar & platformlar
+  'mixmax.com', 'vercel.com', 'github.com', 'linkedin.com',
+  'hubspot.com', 'salesforce.com', 'slack.com',
+  'notion.so', 'figma.com', 'zoom.us',
+  'theofficialboard.com', 'memb.theofficialboard.com',
+  // Mail servisleri
+  'mailchimp.com', 'sendgrid.net', 'amazonses.com',
+  'postmaster', 'noreply', 'no-reply',
+  'smartlead.ai', 'instantly.ai',
+]
+
+const isIgnoredEmail = (email) => {
+  const domain = getDomain(email)
+  return IGNORED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d) || email.includes(d))
+}
+
 // ── V5 RENK SABİTLERİ ───────────────────────────────────────
 const C = {
   bg: '#FAF4EB', bg2: '#F5EFE6', white: '#FFFFFF',
@@ -547,10 +570,10 @@ export default function DuygyCRM({ token, onLogout }) {
       if (isSent) {
         contactEmails = to.split(/[,;]/)
           .map(e => e.trim().replace(/.*<(.+)>.*/, '$1').trim().toLowerCase())
-          .filter(e => e && !e.includes('cambly.com') && !e.includes('mailer-daemon'))
+          .filter(e => e && !isIgnoredEmail(e))
       } else {
         const fromEmail = from.replace(/.*<(.+)>.*/, '$1').trim().toLowerCase()
-        if (fromEmail && !fromEmail.includes('cambly.com') && !fromEmail.includes('mailer-daemon')) {
+        if (fromEmail && !isIgnoredEmail(fromEmail)) {
           contactEmails = [fromEmail]
         }
       }
