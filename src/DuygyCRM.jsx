@@ -272,18 +272,21 @@ export default function DuygyCRM({ token, onLogout }) {
 
   // İlk yükleme — önce DB, yoksa localStorage fallback
   useEffect(() => {
-    const groupByDomain = (ctcts) => {
+    const groupByCompany = (ctcts) => {
       const m = {}
       ctcts.forEach(c => {
-        if (!m[c.domain]) {
-          m[c.domain] = { domain: c.domain, name: c.company, contacts: [], stage: c.stage, lastContact: c.lastContact }
+        const key = (c.company || c.domain).toLowerCase()
+        if (!m[key]) {
+          m[key] = { domain: c.domain, name: c.company || c.domain, contacts: [], stage: c.stage, lastContact: c.lastContact, domains: new Set() }
         }
-        m[c.domain].contacts.push(c)
-        if (new Date(c.lastContact) > new Date(m[c.domain].lastContact)) {
-          m[c.domain].lastContact = c.lastContact
-          m[c.domain].stage = c.stage
+        m[key].contacts.push(c)
+        m[key].domains.add(c.domain)
+        if (new Date(c.lastContact) > new Date(m[key].lastContact)) {
+          m[key].lastContact = c.lastContact
+          m[key].stage = c.stage
         }
       })
+      Object.values(m).forEach(co => { co.domain = [...co.domains].join(', '); delete co.domains })
       return m
     }
 
@@ -298,7 +301,7 @@ export default function DuygyCRM({ token, onLogout }) {
       ])
 
       if (dbContacts && dbContacts.length > 0) {
-        const comps = groupByDomain(dbContacts)
+        const comps = groupByCompany(dbContacts)
         setContacts(dbContacts)
         setCompanies(comps)
         setNotes(dbNotes || {})
@@ -427,14 +430,22 @@ export default function DuygyCRM({ token, onLogout }) {
   const buildCompanies = useCallback((ctcts) => {
     const m = {}
     ctcts.forEach(c => {
-      if (!m[c.domain]) {
-        m[c.domain] = { domain: c.domain, name: c.company, contacts: [], stage: c.stage, lastContact: c.lastContact }
+      // Şirket adı bazlı gruplama (aynı şirketin farklı domainleri birleşir)
+      const key = (c.company || c.domain).toLowerCase()
+      if (!m[key]) {
+        m[key] = { domain: c.domain, name: c.company || c.domain, contacts: [], stage: c.stage, lastContact: c.lastContact, domains: new Set() }
       }
-      m[c.domain].contacts.push(c)
-      if (new Date(c.lastContact) > new Date(m[c.domain].lastContact)) {
-        m[c.domain].lastContact = c.lastContact
-        m[c.domain].stage = c.stage
+      m[key].contacts.push(c)
+      m[key].domains.add(c.domain)
+      if (new Date(c.lastContact) > new Date(m[key].lastContact)) {
+        m[key].lastContact = c.lastContact
+        m[key].stage = c.stage
       }
+    })
+    // domains Set'ini array'e çevir
+    Object.values(m).forEach(co => {
+      co.domain = [...co.domains].join(', ')
+      delete co.domains
     })
     return m
   }, [])
