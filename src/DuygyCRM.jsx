@@ -270,7 +270,22 @@ export default function DuygyCRM({ token, onLogout }) {
 
   // İlk yükleme — önce DB, yoksa localStorage fallback
   useEffect(() => {
-    (async () => {
+    const groupByDomain = (ctcts) => {
+      const m = {}
+      ctcts.forEach(c => {
+        if (!m[c.domain]) {
+          m[c.domain] = { domain: c.domain, name: c.company, contacts: [], stage: c.stage, lastContact: c.lastContact }
+        }
+        m[c.domain].contacts.push(c)
+        if (new Date(c.lastContact) > new Date(m[c.domain].lastContact)) {
+          m[c.domain].lastContact = c.lastContact
+          m[c.domain].stage = c.stage
+        }
+      })
+      return m
+    }
+
+    ;(async () => {
       setStatusMsg('Veriler yükleniyor...')
 
       // DB'den yükle
@@ -281,14 +296,13 @@ export default function DuygyCRM({ token, onLogout }) {
       ])
 
       if (dbContacts && dbContacts.length > 0) {
-        const comps = buildCompanies(dbContacts)
+        const comps = groupByDomain(dbContacts)
         setContacts(dbContacts)
         setCompanies(comps)
         setNotes(dbNotes || {})
         if (dbLabels) setLabelMap(dbLabels)
         setLastSync(Date.now())
         setStatusMsg(`DB: ${dbContacts.length} kişi`)
-        // localStorage'ı da güncelle (offline fallback)
         saveCache({ contacts: dbContacts, companies: comps, notes: dbNotes || {}, labelMap: dbLabels })
         return
       }
@@ -306,7 +320,7 @@ export default function DuygyCRM({ token, onLogout }) {
         setStatusMsg('Tam Tarama yap →')
       }
     })()
-  }, [buildCompanies])
+  }, [])
 
   // Mesaj listesinden contact/company yapısı
   // Hem gönderilen hem alınan mailleri işler
