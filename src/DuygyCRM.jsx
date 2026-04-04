@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   gmailSearchMessages,
   gmailGetMessage,
@@ -225,6 +225,47 @@ const loadCache = () => {
 
 const saveCache = data =>
   localStorage.setItem(CACHE_KEY, JSON.stringify({ ...data, version: CACHE_VER, savedAt: Date.now() }))
+
+// ── TARİH FİLTRE YARDIMCISI ──────────────────────────────────
+function getDateRange(period, startDate, endDate) {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  if (period === 'Tümü') return { from: null, to: null }
+
+  if (period === 'Bugün') return { from: todayStart, to: now }
+
+  if (period === 'Bu Hafta') {
+    const dow = todayStart.getDay()
+    const monday = new Date(todayStart)
+    monday.setDate(monday.getDate() - (dow === 0 ? 6 : dow - 1))
+    return { from: monday, to: now }
+  }
+
+  if (period === 'Bu Ay') {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    return { from: monthStart, to: now }
+  }
+
+  if (period === 'Özel Aralık' && startDate && endDate) {
+    const endOfDay = new Date(endDate + 'T23:59:59')
+    return { from: new Date(startDate), to: endOfDay }
+  }
+
+  return { from: null, to: null }
+}
+
+function filterByDate(items, period, startDate, endDate, dateField = 'lastContact') {
+  const { from, to } = getDateRange(period, startDate, endDate)
+  if (!from && !to) return items
+  return items.filter(item => {
+    const d = item[dateField] ? new Date(item[dateField]) : null
+    if (!d) return false
+    if (from && d < from) return false
+    if (to && d > to) return false
+    return true
+  })
+}
 
 // ═══════════════ V5 SHARED COMPONENTS ═══════════════
 
@@ -820,7 +861,7 @@ export default function DuygyCRM({ token, onLogout }) {
       )}
 
       <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 28px' }}>
-        {tab === 'Dashboard'  && <DashboardPage stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} onNavigate={setTab} />}
+        {tab === 'Dashboard'  && <DashboardPage contacts={contacts} stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} onNavigate={setTab} />}
         {tab === 'Pipeline'   && <PipelinePage contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
         {tab === 'Daily'      && <DailyPage contacts={contacts} overdue={overdue} />}
         {tab === 'Companies'  && <CompaniesPage companies={companies} selCompany={selCompany} setSelCompany={setSelCompany} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
@@ -832,7 +873,7 @@ export default function DuygyCRM({ token, onLogout }) {
 
 // ═══════════════ DASHBOARD ═══════════════
 
-function DashboardPage({ stats, weeklyC, overdue: rawOverdue, updateContactInfo, onNavigate }) {
+function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateContactInfo, onNavigate }) {
   const [tasks, setTasks] = useState([
     { id: 1, t: 'Gmail tara & etiketle', d: false },
     { id: 2, t: 'Personalized Outbound', d: false },
@@ -849,20 +890,32 @@ function DashboardPage({ stats, weeklyC, overdue: rawOverdue, updateContactInfo,
   const [detailCompany, setDetailCompany] = useState(null)
   const { sortKey, sortDir, toggle, sortFn } = useSortable('days', 'desc')
 
+  const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
+  const filteredOverdue = useMemo(() => filterByDate(rawOverdue, period, startDate, endDate), [rawOverdue, period, startDate, endDate])
+
   const overdueGetters = {
     name: c => c.name, company: c => c.company, stage: c => c.stage,
     date: c => new Date(c.lastContact), days: c => daysSince(c.lastContact),
   }
-  const overdue = sortFn(rawOverdue, overdueGetters)
+  const overdue = sortFn(filteredOverdue, overdueGetters)
 
   const done = tasks.filter(t => t.d).length
 
+  const filteredStats = {
+    total: fc.length,
+    meetings: fc.filter(c => c.stage === 'meeting_held').length,
+    scheduled: fc.filter(c => c.stage === 'meeting_scheduled').length,
+    active: fc.filter(c => ['reached_out','follow_up_1','follow_up_2','processing_meeting'].includes(c.stage)).length,
+    reply: fc.filter(c => c.stage === 'needs_reply').length,
+  }
+  const filteredWeekly = fc.filter(c => daysSince(c.lastContact) <= 7)
+
   const statItems = [
-    { l: 'Toplam Kişi', v: stats.total },
-    { l: 'Bu Hafta Aktif', v: weeklyC.length },
-    { l: 'Meeting Held', v: stats.meetings },
-    { l: 'Scheduled', v: stats.scheduled },
-    { l: 'Yanıt Bekliyor', v: stats.reply },
+    { l: 'Toplam Kişi', v: filteredStats.total },
+    { l: 'Bu Hafta Aktif', v: filteredWeekly.length },
+    { l: 'Meeting Held', v: filteredStats.meetings },
+    { l: 'Scheduled', v: filteredStats.scheduled },
+    { l: 'Yanıt Bekliyor', v: filteredStats.reply },
   ]
 
   const hubspot = ['Dönüş Alan Mail:', 'Yan Hak Paketleri:', 'Geçmiş Şirketler (Partner Kontrolü):', 'Title & LinkedIn:', 'Sustainable Reports:', 'Org Chart (HR Yapısı):']
@@ -973,7 +1026,7 @@ function DashboardPage({ stats, weeklyC, overdue: rawOverdue, updateContactInfo,
       <Card style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <span style={{ fontSize: 12.5, fontWeight: 500 }}>Performans Özet</span>
-          <span style={{ fontSize: 11.5, color: C.muted }}>Bu Hafta: {weeklyC.length} Aktif · {stats.meetings} Meeting · {stats.reply} Yanıt Bekliyor</span>
+          <span style={{ fontSize: 11.5, color: C.muted }}>{period}: {filteredStats.total} Kişi · {filteredStats.meetings} Meeting · {filteredStats.reply} Yanıt Bekliyor</span>
         </div>
         <span onClick={() => onNavigate('Performans')} style={{ fontSize: 11, color: C.muted, textDecoration: 'underline', cursor: 'pointer' }}>Detay →</span>
       </Card>
@@ -994,9 +1047,12 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
   const [selectedStage, setSelectedStage] = useState(null)
   const [detailEmail, setDetailEmail] = useState(null)
 
+  // Tarih filtresi
+  const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
+
   // Stage'leri grupla
   const stageGroups = PIPELINE_STAGES.map(stage => {
-    const sc = contacts.filter(c => c.stage === stage)
+    const sc = fc.filter(c => c.stage === stage)
     const meta = STAGE_META[stage]
     return { key: stage, name: meta.label, count: sc.length, contacts: sc, color: meta.color }
   })
@@ -1106,14 +1162,17 @@ function DailyPage({ contacts, overdue }) {
     }))
   }
 
-  const fu1Contacts = contacts.filter(c => c.stage === 'follow_up_1')
-  const fu2Contacts = contacts.filter(c => c.stage === 'follow_up_2')
-  const needsReply = contacts.filter(c => c.stage === 'needs_reply')
-  const processing = contacts.filter(c => c.stage === 'processing_meeting')
+  const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
+  const filteredOverdue = useMemo(() => filterByDate(overdue, period, startDate, endDate), [overdue, period, startDate, endDate])
+
+  const fu1Contacts = fc.filter(c => c.stage === 'follow_up_1')
+  const fu2Contacts = fc.filter(c => c.stage === 'follow_up_2')
+  const needsReply = fc.filter(c => c.stage === 'needs_reply')
+  const processing = fc.filter(c => c.stage === 'processing_meeting')
 
   const fu1 = groupByCompany(fu1Contacts)
   const fu2 = groupByCompany(fu2Contacts)
-  const overdueGrouped = groupByCompany(overdue)
+  const overdueGrouped = groupByCompany(filteredOverdue)
   const needsReplyGrouped = groupByCompany(needsReply)
 
   return (
@@ -1179,7 +1238,12 @@ function CompaniesPage({ companies, selCompany, setSelCompany, notes, setNotes, 
     count: c => c.contacts.length, date: c => new Date(c.lastContact),
   }
 
-  const filtered = Object.values(companies).filter(c =>
+  const dateFiltered = useMemo(() => {
+    const all = Object.values(companies)
+    return filterByDate(all, period, startDate, endDate, 'lastContact')
+  }, [companies, period, startDate, endDate])
+
+  const filtered = dateFiltered.filter(c =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.domain.includes(search.toLowerCase())
   )
   const list = sortFn(filtered, compGetters)
@@ -1299,21 +1363,30 @@ function PerformansPage({ contacts, stats }) {
   const [startDate, setStartDate] = useState('2026-03-01')
   const [endDate, setEndDate] = useState('2026-04-04')
 
+  const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
+
+  const fs = {
+    meetings: fc.filter(c => c.stage === 'meeting_held').length,
+    scheduled: fc.filter(c => c.stage === 'meeting_scheduled').length,
+    active: fc.filter(c => ['reached_out','follow_up_1','follow_up_2','processing_meeting'].includes(c.stage)).length,
+    reply: fc.filter(c => c.stage === 'needs_reply').length,
+  }
+
   const kpis = [
-    { label: 'Meeting Held', current: stats.meetings, target: KPI.meetings, unit: '' },
-    { label: 'Meeting Scheduled', current: stats.scheduled, target: 50, unit: '' },
-    { label: 'Aktif Pipeline', current: stats.active, target: 200, unit: '' },
-    { label: 'Yanıt Bekliyor', current: stats.reply, target: 20, unit: '' },
-    { label: 'Pipeline ($)', current: stats.active * 8000, target: KPI.pipeline, unit: '$' },
+    { label: 'Meeting Held', current: fs.meetings, target: KPI.meetings, unit: '' },
+    { label: 'Meeting Scheduled', current: fs.scheduled, target: 50, unit: '' },
+    { label: 'Aktif Pipeline', current: fs.active, target: 200, unit: '' },
+    { label: 'Yanıt Bekliyor', current: fs.reply, target: 20, unit: '' },
+    { label: 'Pipeline ($)', current: fs.active * 8000, target: KPI.pipeline, unit: '$' },
   ]
 
   const funnel = [
-    { stage: 'Reached Out', count: contacts.filter(c => c.stage === 'reached_out').length },
-    { stage: 'Follow Up', count: contacts.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage)).length },
-    { stage: 'Processing', count: contacts.filter(c => c.stage === 'processing_meeting').length },
-    { stage: 'Scheduled', count: stats.scheduled },
-    { stage: 'Meeting Held', count: stats.meetings },
-    { stage: 'Not Interested', count: contacts.filter(c => c.stage === 'not_interested').length },
+    { stage: 'Reached Out', count: fc.filter(c => c.stage === 'reached_out').length },
+    { stage: 'Follow Up', count: fc.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage)).length },
+    { stage: 'Processing', count: fc.filter(c => c.stage === 'processing_meeting').length },
+    { stage: 'Scheduled', count: fs.scheduled },
+    { stage: 'Meeting Held', count: fs.meetings },
+    { stage: 'Not Interested', count: fc.filter(c => c.stage === 'not_interested').length },
   ]
   const maxF = funnel[0].count || 1
 
@@ -1369,7 +1442,7 @@ function PerformansPage({ contacts, stats }) {
         <div style={{ padding: '12px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
           {Object.entries(STAGE_META).map(([stage, meta]) => (
             <div key={stage} style={{ background: C.bg2, borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${meta.color}` }}>
-              <div style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>{contacts.filter(c => c.stage === stage).length}</div>
+              <div style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>{fc.filter(c => c.stage === stage).length}</div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{meta.label}</div>
             </div>
           ))}
