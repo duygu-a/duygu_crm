@@ -1,26 +1,10 @@
-// Gmail OAuth 2.0 — PKCE flow (backend yok, tamamen client-side)
+// Gmail OAuth 2.0 — Authorization Code flow (backend ile)
 
 const CLIENT_ID    = import.meta.env.VITE_GOOGLE_CLIENT_ID
 const REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI
 const SCOPES       = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify'
 const TOKEN_KEY    = 'duygu_crm_access_token'
 const EXPIRY_KEY   = 'duygu_crm_token_expiry'
-const VERIFIER_KEY = 'duygu_crm_code_verifier'
-
-// ── PKCE ────────────────────────────────────────────────────
-function generateVerifier() {
-  const arr = new Uint8Array(32)
-  crypto.getRandomValues(arr)
-  return btoa(String.fromCharCode(...arr))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
-
-async function generateChallenge(verifier) {
-  const data = new TextEncoder().encode(verifier)
-  const digest = await crypto.subtle.digest('SHA-256', data)
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
 
 // ── Token ────────────────────────────────────────────────────
 export function getToken() {
@@ -45,86 +29,35 @@ export function clearToken() {
   localStorage.removeItem(EXPIRY_KEY)
 }
 
-// ── Cookie helpers ──────────────────────────────────────────
-function setCookie(name, value, minutes = 10) {
-  const expires = new Date(Date.now() + minutes * 60000).toUTCString()
-  document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires};path=/;SameSite=Lax;Secure`
-}
-
-function getCookie(name) {
-  const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'))
-  return match ? decodeURIComponent(match[1]) : null
-}
-
-function deleteCookie(name) {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
-}
-
 // ── Login ────────────────────────────────────────────────────
-export async function startLogin() {
-  const verifier   = generateVerifier()
-  const challenge  = await generateChallenge(verifier)
-
-  // 3 farklı yere kaydet — en az biri çalışacak
-  try { localStorage.setItem(VERIFIER_KEY, verifier) } catch (e) {}
-  try { sessionStorage.setItem(VERIFIER_KEY, verifier) } catch (e) {}
-  setCookie(VERIFIER_KEY, verifier)
-
-  console.log('Verifier saved to localStorage:', !!localStorage.getItem(VERIFIER_KEY))
-  console.log('Verifier saved to sessionStorage:', !!sessionStorage.getItem(VERIFIER_KEY))
-  console.log('Verifier saved to cookie:', !!getCookie(VERIFIER_KEY))
-
+export function startLogin() {
   const params = new URLSearchParams({
-    client_id:             CLIENT_ID,
-    redirect_uri:          REDIRECT_URI,
-    response_type:         'code',
-    scope:                 SCOPES,
-    code_challenge:        challenge,
-    code_challenge_method: 'S256',
-    access_type:           'offline',
-    prompt:                'consent',
+    client_id:     CLIENT_ID,
+    redirect_uri:  REDIRECT_URI,
+    response_type: 'code',
+    scope:         SCOPES,
+    access_type:   'offline',
+    prompt:        'consent',
   })
   window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
 }
 
 // ── Callback — code → token exchange ─────────────────────────
-// NOT: PKCE ile client_secret olmadan token exchange ÇALIŞMAZ
-// Google desktop app type gerektirir veya backend proxy gerekir.
-// Bu proje için Vercel serverless function kullanıyoruz.
+// Backend client_secret ile token exchange yapar — PKCE gerekmez
 export async function handleCallback(code) {
-  // 3 kaynaktan da dene
-  const fromLocal   = localStorage.getItem(VERIFIER_KEY)
-  const fromSession = sessionStorage.getItem(VERIFIER_KEY)
-  const fromCookie  = getCookie(VERIFIER_KEY)
-  const verifier    = fromLocal || fromSession || fromCookie
-
-  console.log('handleCallback debug:', {
-    fromLocal: !!fromLocal,
-    fromSession: !!fromSession,
-    fromCookie: !!fromCookie,
-    cookies: document.cookie,
-    localKeys: Object.keys(localStorage),
-    sessionKeys: Object.keys(sessionStorage),
-    origin: window.location.origin,
-  })
-
-  if (!verifier) {
-    throw new Error(
-      'Code verifier bulunamadı. localStorage, sessionStorage ve cookie üçü de boş.'
-    )
-  }
-
   const res = await fetch('/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, verifier, redirect_uri: REDIRECT_URI }),
+    body: JSON.stringify({ code, redirect_uri: REDIRECT_URI }),
   })
-  if (!res.ok) throw new Error('Token exchange başarısız')
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || 'Token exchange başarısız')
+  }
+
   const data = await res.json()
   saveToken(data.access_token, data.expires_in)
-  localStorage.removeItem(VERIFIER_KEY)
-  sessionStorage.removeItem(VERIFIER_KEY)
-  deleteCookie(VERIFIER_KEY)
   return data.access_token
 }
 
