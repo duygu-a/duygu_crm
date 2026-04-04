@@ -937,7 +937,14 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
                 <tr key={c.domain} style={{ ...S.tr, cursor: 'pointer', background: selCompany === c.domain ? '#F5EFE6' : '' }} onClick={() => setSelCompany(c.domain)}>
                   <td style={{ ...S.td, fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={(e) => { e.stopPropagation(); setDetailCompany(c.name) }}>{c.name}</td>
                   <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{c.domain}</td>
-                  <td style={S.td}><StagePill stage={c.stage} /></td>
+                  <td style={S.td} onClick={e => e.stopPropagation()}>
+                    <select style={{ ...S.stageSelect, width: 'auto', marginTop: 0, fontSize: 12 }} value={c.stage} onChange={e => {
+                      const newStage = e.target.value
+                      c.contacts.forEach(ct => changeStage(ct.email, newStage))
+                    }}>
+                      {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                    </select>
+                  </td>
                   <td style={S.td}>{c.contacts.length}</td>
                   <td style={S.td}>{fmtDate(c.lastContact)}</td>
                 </tr>
@@ -956,7 +963,12 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
             </div>
             <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#888' }} onClick={() => setSelCompany(null)}>✕</button>
           </div>
-          <StagePill stage={sel.stage} />
+          <select style={{ ...S.stageSelect, width: 'auto', marginTop: 0 }} value={sel.stage} onChange={e => {
+            const newStage = e.target.value
+            sel.contacts.forEach(ct => changeStage(ct.email, newStage))
+          }}>
+            {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+          </select>
           <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>{fmtDate(sel.lastContact)}</span>
 
           <div style={{ ...S.sTitle, marginTop: '1rem' }}>Kişiler ({sel.contacts.length})</div>
