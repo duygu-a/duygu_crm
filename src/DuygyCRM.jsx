@@ -147,8 +147,8 @@ const classifyContact = (c) => {
   const sub = (c.subject || '').toLowerCase()
   const hasSent = c.sentCount > 0
   const hasReply = c.receivedCount > 0
-  const daysSinceSent = c.lastSent ? Math.floor((Date.now() - new Date(c.lastSent).getTime()) / 86400000) : 999
-  const daysSinceReply = c.lastReceived ? Math.floor((Date.now() - new Date(c.lastReceived).getTime()) / 86400000) : 999
+  const daysSinceSent = businessDaysSince(c.lastSent)
+  const daysSinceReply = businessDaysSince(c.lastReceived)
 
   if (s.includes('mailer-daemon') || s.includes('postmaster') ||
       sub.includes('delivery status') || sub.includes('undeliverable') ||
@@ -201,7 +201,7 @@ const classifyContact = (c) => {
     return 'follow_up_1'
 
   if (hasSent && !hasReply) {
-    if (daysSinceSent >= 7) return 'no_answer'
+    if (daysSinceSent >= 5) return 'no_answer'
     return 'reached_out'
   }
 
@@ -980,8 +980,8 @@ export default function DuygyCRM({ token, onLogout }) {
     reply:     contacts.filter(c => c.stage === 'needs_reply').length,
   }
 
-  const weeklyC  = contacts.filter(c => daysSince(c.lastContact) <= 7)
-  const overdue  = contacts.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage) && daysSince(c.lastContact) >= 3)
+  const weeklyC  = contacts.filter(c => businessDaysSince(c.lastContact) <= 5)
+  const overdue  = contacts.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage) && businessDaysSince(c.lastContact) >= 2)
   const filtered = contacts.filter(c => {
     if (!searchQ) return true
     const q = searchQ.toLowerCase()
@@ -1063,7 +1063,7 @@ function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateCo
 
   const overdueGetters = {
     name: c => c.name, company: c => c.company, stage: c => c.stage,
-    date: c => new Date(c.lastContact), days: c => daysSince(c.lastContact),
+    date: c => new Date(c.lastContact), days: c => businessDaysSince(c.lastContact),
   }
   const overdue = sortFn(filteredOverdue, overdueGetters)
 
@@ -1076,7 +1076,7 @@ function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateCo
     active: fc.filter(c => ['reached_out','follow_up_1','follow_up_2','processing_meeting'].includes(c.stage)).length,
     reply: fc.filter(c => c.stage === 'needs_reply').length,
   }
-  const filteredWeekly = fc.filter(c => daysSince(c.lastContact) <= 7)
+  const filteredWeekly = fc.filter(c => businessDaysSince(c.lastContact) <= 5)
 
   const statItems = [
     { l: 'Toplam Kişi', v: filteredStats.total },
@@ -1186,7 +1186,7 @@ function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateCo
                     </select>
                   </td>
                   <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>{fmtDate(c.lastContact)}</td>
-                  <td style={{ padding: '10px 14px', color: '#EF4444', fontWeight: 500, fontSize: 12 }}>{daysSince(c.lastContact)}g</td>
+                  <td style={{ padding: '10px 14px', color: '#EF4444', fontWeight: 500, fontSize: 12 }}>{businessDaysSince(c.lastContact)} iş g.</td>
                 </tr>
               ))}
             </tbody>
