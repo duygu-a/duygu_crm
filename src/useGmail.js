@@ -82,7 +82,17 @@ export async function gmailSearchMessages(token, q, maxResults = 500, pageToken)
 }
 
 export async function gmailGetMessage(token, id) {
-  return gmailFetch(`messages/${id}`, token, { format: 'metadata', metadataHeaders: 'From,To,Cc,Subject,Date' })
+  const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}`)
+  url.searchParams.set('format', 'metadata')
+  ;['From','To','Cc','Subject','Date'].forEach(h => url.searchParams.append('metadataHeaders', h))
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!res.ok) {
+    if (res.status === 401) { clearToken(); throw new Error('TOKEN_EXPIRED') }
+    throw new Error(`Gmail API hatası: ${res.status}`)
+  }
+  return res.json()
 }
 
 export async function gmailListLabels(token) {
