@@ -43,25 +43,42 @@ const TABS = ['Dashboard', 'Pipeline', 'Daily', 'Companies', 'Performans']
 
 // ── FİLTRELENECEK DOMAİNLER (sistem/araç mailleri) ──────────
 const IGNORED_DOMAINS = [
-  'cambly.com', 'mailer-daemon',
+  'cambly.com',
   // Google sistem
   'google.com', 'googlemail.com', 'gmail.com',
-  'docs.google.com', 'drive.google.com', 'calendar.google.com',
-  'autoreply.mail.google.com', 'notifications.google.com',
   // Araçlar & platformlar
   'mixmax.com', 'vercel.com', 'github.com', 'linkedin.com',
   'hubspot.com', 'salesforce.com', 'slack.com',
   'notion.so', 'figma.com', 'zoom.us',
-  'theofficialboard.com', 'memb.theofficialboard.com',
-  // Mail servisleri
+  'theofficialboard.com',
+  // SaaS / newsletter / bildirim
+  'superhuman.com', 'instapage.com', 'intercom.io', 'intercom-mail.com',
   'mailchimp.com', 'sendgrid.net', 'amazonses.com',
-  'postmaster', 'noreply', 'no-reply',
-  'smartlead.ai', 'instantly.ai',
+  'smartlead.ai', 'instantly.ai', 'apollo.io', 'outreach.io',
+  'calendly.com', 'loom.com', 'grammarly.com', 'canva.com',
+  'claude.ai', 'anthropic.com',
+]
+
+// noreply/no-reply/notification/info/welcome gibi sistem adresleri
+const IGNORED_PREFIXES = [
+  'noreply', 'no-reply', 'no_reply',
+  'notifications', 'notification',
+  'mailer-daemon', 'postmaster',
+  'info@', 'welcome@', 'hello@',
+  'support@', 'team@', 'news@', 'newsletter@',
+  'onboarding@', 'updates@', 'alert@', 'alerts@',
+  'ship@', 'calendar-notification@', 'meetings-noreply@',
 ]
 
 const isIgnoredEmail = (email) => {
+  if (!email) return true
   const domain = getDomain(email)
-  return IGNORED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d) || email.includes(d))
+  const local = email.split('@')[0]
+  // Domain eşleşmesi (alt domain dahil)
+  if (IGNORED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) return true
+  // Prefix eşleşmesi (noreply, notifications, vb.)
+  if (IGNORED_PREFIXES.some(p => p.includes('@') ? email.startsWith(p) : local.includes(p))) return true
+  return false
 }
 
 // ── V5 RENK SABİTLERİ ───────────────────────────────────────
@@ -488,6 +505,12 @@ export default function DuygyCRM({ token, onLogout }) {
       ])
 
       if (dbContacts && dbContacts.length > 0) {
+        // Sistem/araç maillerini filtrele
+        const cleanContacts = dbContacts.filter(c => !isIgnoredEmail(c.email))
+        if (cleanContacts.length < dbContacts.length) {
+          console.log(`Filtrelendi: ${dbContacts.length - cleanContacts.length} sistem maili silindi`)
+        }
+        const dbC = cleanContacts
         // contacts_info + companies_info'dan domain→company haritası oluştur
         try {
           const [infoRows, compInfoRows] = await Promise.all([
@@ -511,7 +534,7 @@ export default function DuygyCRM({ token, onLogout }) {
           const infoMap = {}
           infoRows.forEach(r => { if (r.email) infoMap[r.email.toLowerCase()] = r })
           let fixed = 0
-          dbContacts.forEach(c => {
+          dbC.forEach(c => {
             const info = infoMap[c.email]
             if (info && info.company && c.company !== info.company) {
               c.company = info.company
@@ -523,18 +546,18 @@ export default function DuygyCRM({ token, onLogout }) {
             }
           })
           if (fixed > 0) {
-            dbSaveContacts(dbContacts) // düzeltilmiş şirket adlarını DB'ye yaz
+            dbSaveContacts(dbC)
           }
         } catch (e) { /* eşleşme hatası — devam */ }
 
-        const comps = groupByCompany(dbContacts)
-        setContacts(dbContacts)
+        const comps = groupByCompany(dbC)
+        setContacts(dbC)
         setCompanies(comps)
         setNotes(dbNotes || {})
         if (dbLabels) setLabelMap(dbLabels)
         setLastSync(Date.now())
-        setStatusMsg(`DB: ${dbContacts.length} kişi`)
-        saveCache({ contacts: dbContacts, companies: comps, notes: dbNotes || {}, labelMap: dbLabels })
+        setStatusMsg(`DB: ${dbC.length} kişi`)
+        saveCache({ contacts: dbC, companies: comps, notes: dbNotes || {}, labelMap: dbLabels })
         return
       }
 
