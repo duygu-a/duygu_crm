@@ -43,10 +43,12 @@ const STAGE_META = {
 const PIPELINE_STAGES = [
   'reached_out','follow_up_1','follow_up_2','needs_reply',
   'processing_meeting','meeting_scheduled','meeting_held','reschedule',
+  'no_answer','not_interested','bounce','wrong_person',
+  'out_of_office','competitor',
 ]
 const OUTCOME_STAGES = [
   'no_answer','not_interested','bounce','wrong_person',
-  'out_of_office','competitor','b2c_campaign','smartlead',
+  'out_of_office','competitor',
 ]
 
 const KPI = { meetings: 156, pipeline: 3100000 }
@@ -802,7 +804,13 @@ function Dashboard({ stats, weeklyC, overdue: rawOverdue, updateContactInfo }) {
 
 // ── PIPELINE ──────────────────────────────────────────────────
 function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, expStage, setExpStage, changeStage, updateContactInfo }) {
-  const stages = pipeFilter === 'outcome' ? OUTCOME_STAGES : PIPELINE_STAGES
+  const stageMap = {
+    all: PIPELINE_STAGES,
+    outcome: OUTCOME_STAGES,
+    b2c: ['b2c_campaign'],
+    smartlead: ['smartlead'],
+  }
+  const stages = stageMap[pipeFilter] || PIPELINE_STAGES
   const [detailEmail, setDetailEmail] = useState(null)
   return (
     <div style={S.page}>
