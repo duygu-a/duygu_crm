@@ -327,8 +327,10 @@ function getDateRange(period, startDate, endDate) {
   }
 
   if (period === 'Özel Aralık' && startDate && endDate) {
-    const endOfDay = new Date(endDate + 'T23:59:59')
-    return { from: new Date(startDate), to: endOfDay }
+    // Lokal timezone'da parse et (UTC midnight hatasını önle)
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const [ey, em, ed] = endDate.split('-').map(Number)
+    return { from: new Date(sy, sm - 1, sd, 0, 0, 0), to: new Date(ey, em - 1, ed, 23, 59, 59) }
   }
 
   return { from: null, to: null }
@@ -338,8 +340,10 @@ function filterByDate(items, period, startDate, endDate, dateField = 'lastContac
   const { from, to } = getDateRange(period, startDate, endDate)
   if (!from && !to) return items
   return items.filter(item => {
-    const d = item[dateField] ? new Date(item[dateField]) : null
-    if (!d) return false
+    const raw = item[dateField]
+    if (!raw) return false
+    const d = new Date(raw)
+    if (isNaN(d.getTime())) return false
     if (from && d < from) return false
     if (to && d > to) return false
     return true
