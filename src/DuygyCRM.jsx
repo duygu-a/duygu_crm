@@ -754,7 +754,7 @@ function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
               <tbody>
                 {overdue.slice(0, 8).map(c => (
                   <tr key={c.email} style={S.tr}>
-                    <td style={S.td}>{c.name}</td>
+                    <td style={S.td}><div style={{ fontWeight: 500 }}>{c.name}</div><div style={{ fontSize: 11, color: '#888' }}>{c.email}</div></td>
                     <td style={S.td}>{c.company}</td>
                     <td style={S.td}><StagePill stage={c.stage} /></td>
                     <td style={S.td}>{fmtDate(c.lastContact)}</td>
@@ -1065,7 +1065,7 @@ function ContactCard({ contact: c, onStageChange, compact }) {
         <div style={{ ...S.avatar, width: 28, height: 28, fontSize: 11, flexShrink: 0 }}>{initials(c.name)}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
-          <div style={{ fontSize: 11, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.company}</div>
+          <div style={{ fontSize: 11, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</div>
         </div>
         <div style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>{daysSince(c.lastContact)}g</div>
       </div>
