@@ -13,7 +13,6 @@ const MY_EMAIL   = 'duygu@cambly.com'
 const CACHE_KEY  = 'duygu_crm_v5_data'
 const CACHE_VER  = 5
 
-// Label ID'leri dinamik olarak Gmail'den çekilir (CRM/stage_name formatında)
 const ALL_STAGES = [
   'reached_out','follow_up_1','follow_up_2','needs_reply',
   'processing_meeting','meeting_scheduled','meeting_held','reschedule',
@@ -39,9 +38,14 @@ const STAGE_META = {
 }
 
 const PIPELINE_STAGES = ALL_STAGES
-
 const KPI = { meetings: 156, pipeline: 3100000 }
 const TABS = ['Dashboard', 'Pipeline', 'Daily', 'Companies', 'Performans']
+
+// ── V5 RENK SABİTLERİ ───────────────────────────────────────
+const C = {
+  bg: '#FAF4EB', bg2: '#F5EFE6', white: '#FFFFFF',
+  border: '#E4DBD3', text: '#050500', muted: '#888',
+}
 
 // ── YARDIMCILAR ───────────────────────────────────────────────
 const hdr = (headers, name) => {
@@ -78,7 +82,6 @@ const stageFromLabels = (labelIds, labelToStage) => {
   return null
 }
 
-// İki yönlü iletişime göre classify et
 const classifyContact = (c) => {
   const s = (c.snippet || '').toLowerCase()
   const sub = (c.subject || '').toLowerCase()
@@ -87,74 +90,61 @@ const classifyContact = (c) => {
   const daysSinceSent = c.lastSent ? Math.floor((Date.now() - new Date(c.lastSent).getTime()) / 86400000) : 999
   const daysSinceReply = c.lastReceived ? Math.floor((Date.now() - new Date(c.lastReceived).getTime()) / 86400000) : 999
 
-  // Bounce
   if (s.includes('mailer-daemon') || s.includes('postmaster') ||
       sub.includes('delivery status') || sub.includes('undeliverable') ||
       sub.includes('mail delivery failed') || sub.includes('returned mail'))
     return 'bounce'
 
-  // Out Of Office
   if (sub.includes('out of office') || sub.includes('otomatik yanıt') ||
       sub.includes('automatic reply') || sub.includes('dışarıda') ||
       sub.includes('izinde') || s.includes('out of office') ||
       s.includes('otomatik yanıt'))
     return 'out_of_office'
 
-  // Wrong Person
   if (hasReply && (s.includes('yanlış kişi') || s.includes('ben değilim') ||
       s.includes('sorumlu değil') || s.includes('başka birine yönlendiriyorum')))
     return 'wrong_person'
 
-  // Not Interested
   if (hasReply && (s.includes('ilgilenmiyoruz') || s.includes('ilgilenmiyorum') ||
       s.includes('ihtiyacımız yok') || s.includes('gündemimizde değil') ||
       s.includes('şu an için değil') || s.includes('not interested')))
     return 'not_interested'
 
-  // Competitor
   if (hasReply && (s.includes('babbel') || s.includes('duolingo') || s.includes('rosetta') ||
       s.includes('başka bir platform') || s.includes('farklı bir çözüm')))
     return 'competitor'
 
-  // Reschedule
   if (hasReply && (s.includes('reschedule') || s.includes('ertelemek') ||
       s.includes('ertelememiz') || s.includes('başka bir güne')))
     return 'reschedule'
 
-  // Meeting Scheduled
   if (s.includes('toplantı oluşturdum') || s.includes('davetiye gönderdim') ||
       s.includes('davetiyesini paylaştı') || s.includes('için toplantı oluşturd') ||
       (s.includes('saat') && s.includes('için') && s.includes('oluşturdum')))
     return 'meeting_scheduled'
 
-  // Processing - Meeting (müsaitlik konuşuluyor)
   if (hasReply && (s.includes('müsaitlik') || s.includes('müsait misiniz') ||
       s.includes('hangi gün') || s.includes('uygun olur mu') ||
       s.includes('ne zaman uygun') || s.includes('saat kaçta') ||
       s.includes('takvim')))
     return 'processing_meeting'
 
-  // Yanıt geldiyse → Needs Reply (sen henüz yanıtlamamışsan)
   if (hasReply && hasSent && new Date(c.lastReceived) > new Date(c.lastSent))
     return 'needs_reply'
 
-  // 2. Follow Up — breakup mesajları
   if (c.sentCount >= 3 || s.includes('birkaç kez ulaşmaya çalıştım') ||
       s.includes('doğrudan konuya gelmek') || s.includes('son bir not'))
     return 'follow_up_2'
 
-  // 1. Follow Up
   if (c.sentCount === 2 || s.includes('farklı bir açıdan tekrar') ||
       s.includes('tekrar ulaşmak istedim'))
     return 'follow_up_1'
 
-  // Sadece gönderilmiş, yanıt yok
   if (hasSent && !hasReply) {
     if (daysSinceSent >= 7) return 'no_answer'
     return 'reached_out'
   }
 
-  // Default
   return 'reached_out'
 }
 
@@ -174,7 +164,6 @@ const dbLoadContacts = async () => {
     const res = await fetch('/api/contacts')
     if (!res.ok) return null
     const rows = await res.json()
-    // DB snake_case → frontend camelCase
     return rows.map(r => ({
       email: r.email, domain: r.domain, company: r.company, name: r.name,
       stage: r.stage, sentCount: r.sent_count, receivedCount: r.received_count,
@@ -237,7 +226,159 @@ const loadCache = () => {
 const saveCache = data =>
   localStorage.setItem(CACHE_KEY, JSON.stringify({ ...data, version: CACHE_VER, savedAt: Date.now() }))
 
-// ── ANA UYGULAMA ──────────────────────────────────────────────
+// ═══════════════ V5 SHARED COMPONENTS ═══════════════
+
+function Dropdown({ title, info, btn, onBtnClick, onClose }) {
+  return (
+    <div style={{ position: 'absolute', top: 40, right: 0, width: 240, background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 8px 24px rgba(0,0,0,0.07)', zIndex: 200 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, lineHeight: 1.5 }}>{info}</div>
+      <button onClick={onBtnClick} style={{ width: '100%', padding: '7px 0', borderRadius: 6, border: 'none', background: C.text, color: C.white, fontSize: 11.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>{btn}</button>
+    </div>
+  )
+}
+
+function Card({ children, style, onClick }) {
+  return <div onClick={onClick} style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, ...style }}>{children}</div>
+}
+
+function CardHeader({ title, right }) {
+  return (
+    <div style={{ padding: '12px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
+      <span style={{ fontSize: 13, fontWeight: 500 }}>{title}</span>
+      {right}
+    </div>
+  )
+}
+
+function Badge({ children, color }) {
+  const colors = {
+    blue: { bg: '#E6F1FB', text: '#185FA5' }, green: { bg: '#E1F5EE', text: '#0F6E56' },
+    amber: { bg: '#FAEEDA', text: '#854F0B' }, red: { bg: '#FCEBEB', text: '#A32D2D' },
+    gray: { bg: C.bg2, text: C.muted }, purple: { bg: '#EEEDFE', text: '#534AB7' },
+  }
+  const c = colors[color] || colors.gray
+  return <span style={{ fontSize: 10.5, fontWeight: 500, padding: '2px 8px', borderRadius: 10, background: c.bg, color: c.text, whiteSpace: 'nowrap' }}>{children}</span>
+}
+
+function FilterBar({ filters, active, onSelect }) {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {filters.map(f => (
+        <button key={f} onClick={() => onSelect(f)} style={{ padding: '5px 14px', borderRadius: 6, border: `1px solid ${active === f ? C.text : C.border}`, background: active === f ? C.text : C.white, color: active === f ? C.white : C.muted, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>{f}</button>
+      ))}
+    </div>
+  )
+}
+
+function DateFilter({ period, onPeriodChange, startDate, endDate, onStartChange, onEndChange }) {
+  const presets = ['Bugün', 'Bu Hafta', 'Bu Ay', 'Tümü', 'Özel Aralık']
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18 }}>
+      {presets.map(p => (
+        <button key={p} onClick={() => onPeriodChange(p)} style={{
+          padding: '5px 14px', borderRadius: 6,
+          border: `1px solid ${period === p ? C.text : C.border}`,
+          background: period === p ? C.text : C.white,
+          color: period === p ? C.white : C.muted,
+          fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit'
+        }}>{p}</button>
+      ))}
+      {period === 'Özel Aralık' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 6 }}>
+          <input type="date" value={startDate} onChange={e => onStartChange(e.target.value)}
+            style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit', color: C.text, background: C.white, outline: 'none' }} />
+          <span style={{ fontSize: 11, color: C.muted }}>—</span>
+          <input type="date" value={endDate} onChange={e => onEndChange(e.target.value)}
+            style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit', color: C.text, background: C.white, outline: 'none' }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FUCard({ title, items, total, color, urgent }) {
+  return (
+    <Card>
+      <div style={{ padding: '12px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: 12.5, fontWeight: 500 }}>{title}</span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {urgent && <Badge color="red">Acil</Badge>}
+          <Badge color={color}>{total}</Badge>
+        </div>
+      </div>
+      <div style={{ padding: '6px 0' }}>
+        {items.slice(0, 5).map((item, i) => (
+          <div key={i} style={{ padding: '7px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>{item.company}</span>
+              <span style={{ fontSize: 10.5, color: C.muted, marginLeft: 6 }}>{item.count} Kişi</span>
+            </div>
+            <span style={{ fontSize: 10.5, color: C.muted }}>{item.date}</span>
+          </div>
+        ))}
+        {total > items.length && (
+          <div style={{ padding: '6px 16px', fontSize: 10.5, color: C.muted }}>+{total - items.length} şirket daha...</div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function StagePill({ stage, small }) {
+  const meta = STAGE_META[stage] || { label: stage, color: '#9CA3AF' }
+  return (
+    <span style={{
+      fontSize: small ? 10 : 11, padding: small ? '1px 6px' : '2px 8px',
+      borderRadius: 20, background: meta.color + '20', color: meta.color,
+      fontWeight: 500, whiteSpace: 'nowrap',
+    }}>{meta.label}</span>
+  )
+}
+
+// ═══════════════ SORTABLE TABLE ═══════════════
+
+function useSortable(defaultKey = null, defaultDir = 'asc') {
+  const [sortKey, setSortKey] = useState(defaultKey)
+  const [sortDir, setSortDir] = useState(defaultDir)
+  const toggle = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const sortFn = (data, getters) => {
+    if (!sortKey || !getters[sortKey]) return data
+    const getter = getters[sortKey]
+    return [...data].sort((a, b) => {
+      let va = getter(a), vb = getter(b)
+      if (va == null) va = ''
+      if (vb == null) vb = ''
+      if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va
+      if (va instanceof Date && vb instanceof Date) return sortDir === 'asc' ? va - vb : vb - va
+      va = String(va).toLowerCase(); vb = String(vb).toLowerCase()
+      if (va < vb) return sortDir === 'asc' ? -1 : 1
+      if (va > vb) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }
+  return { sortKey, sortDir, toggle, sortFn }
+}
+
+function SortTh({ label, sortKey, currentKey, currentDir, onToggle }) {
+  const active = currentKey === sortKey
+  return (
+    <th
+      style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 500, color: C.muted, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+      onClick={() => onToggle(sortKey)}
+    >
+      {label} <span style={{ fontSize: 10, color: active ? C.text : '#ccc', marginLeft: 2 }}>
+        {active ? (currentDir === 'asc' ? '▲' : '▼') : '⇅'}
+      </span>
+    </th>
+  )
+}
+
+// ═══════════════ ANA UYGULAMA ═══════════════
+
 export default function DuygyCRM({ token, onLogout }) {
   const [tab, setTab]               = useState('Dashboard')
   const [contacts, setContacts]     = useState([])
@@ -248,10 +389,10 @@ export default function DuygyCRM({ token, onLogout }) {
   const [lastSync, setLastSync]     = useState(null)
   const [searchQ, setSearchQ]       = useState('')
   const [selCompany, setSelCompany] = useState(null)
-  const [pipeFilter, setPipeFilter] = useState('all')
-  const [expStage, setExpStage]     = useState(null)
   const [notes, setNotes]           = useState({})
-  const [labelMap, setLabelMap]     = useState(null) // { stage_name: gmail_label_id }
+  const [labelMap, setLabelMap]     = useState(null)
+  const [gmailDd, setGmailDd]      = useState(false)
+  const [linkedinDd, setLinkedinDd] = useState(false)
 
   // İlk yükleme — önce DB, yoksa localStorage fallback
   useEffect(() => {
@@ -276,7 +417,6 @@ export default function DuygyCRM({ token, onLogout }) {
     ;(async () => {
       setStatusMsg('Veriler yükleniyor...')
 
-      // DB'den yükle
       const [dbContacts, dbNotes, dbLabels] = await Promise.all([
         dbLoadContacts(),
         dbLoadNotes(),
@@ -295,7 +435,6 @@ export default function DuygyCRM({ token, onLogout }) {
         return
       }
 
-      // DB boşsa localStorage'dan dene
       const cache = loadCache()
       if (cache?.contacts?.length) {
         setContacts(cache.contacts)
@@ -310,11 +449,7 @@ export default function DuygyCRM({ token, onLogout }) {
     })()
   }, [])
 
-  // Mesaj listesinden contact/company yapısı
-  // Hem gönderilen hem alınan mailleri işler
   const buildData = useCallback((messages, labelWriteQueue = [], stageToLabelId = {}, labelIdToStage = {}) => {
-    // Thread bazlı gruplama: her thread'deki tüm mesajları topla
-    const threadMap = {} // threadId → { sent: [], received: [], contactEmail, ... }
     const contactMap = {}
 
     messages.forEach(msg => {
@@ -328,7 +463,6 @@ export default function DuygyCRM({ token, onLogout }) {
       const cc      = hdr(headers, 'Cc').toLowerCase()
       const isSent  = from.includes(MY_EMAIL.toLowerCase())
 
-      // Karşı tarafın emailini bul
       let contactEmails = []
       if (isSent) {
         contactEmails = to.split(/[,;]/)
@@ -385,9 +519,7 @@ export default function DuygyCRM({ token, onLogout }) {
       })
     })
 
-    // Her contact için stage belirle
     return Object.values(contactMap).map(c => {
-      // Önce Gmail label'dan stage bul
       const uniqueLabels = [...new Set(c.labels)]
       const fromLabel = stageFromLabels(uniqueLabels, labelIdToStage)
 
@@ -395,16 +527,13 @@ export default function DuygyCRM({ token, onLogout }) {
       if (fromLabel) {
         stage = fromLabel
       } else {
-        // İki yönlü iletişim bazlı classification
         stage = classifyContact(c)
       }
 
-      // Label yoksa yazma kuyruğuna al
       if (!fromLabel && c.threadId && stageToLabelId[stage]) {
         labelWriteQueue.push({ threadId: c.threadId, labelId: stageToLabelId[stage] })
       }
 
-      // Gereksiz field'ları temizle
       delete c.labels
       return { ...c, stage }
     })
@@ -413,7 +542,6 @@ export default function DuygyCRM({ token, onLogout }) {
   const buildCompanies = useCallback((ctcts) => {
     const m = {}
     ctcts.forEach(c => {
-      // Şirket adı bazlı gruplama (aynı şirketin farklı domainleri birleşir)
       const key = (c.company || c.domain).toLowerCase()
       if (!m[key]) {
         m[key] = { domain: c.domain, name: c.company || c.domain, contacts: [], stage: c.stage, lastContact: c.lastContact, domains: new Set() }
@@ -425,7 +553,6 @@ export default function DuygyCRM({ token, onLogout }) {
         m[key].stage = c.stage
       }
     })
-    // domains Set'ini array'e çevir
     Object.values(m).forEach(co => {
       co.domain = [...co.domains].join(', ')
       delete co.domains
@@ -433,7 +560,6 @@ export default function DuygyCRM({ token, onLogout }) {
     return m
   }, [])
 
-  // Mesajları batch halinde çek (rate limit koruması)
   const fetchMessagesBatched = useCallback(async (token, ids, onProgress) => {
     const BATCH_SIZE = 20
     const DELAY_MS = 200
@@ -458,7 +584,6 @@ export default function DuygyCRM({ token, onLogout }) {
     setProgress(5)
     setStatusMsg('Gmail etiketleri hazırlanıyor...')
     try {
-      // 1) Gmail label'larını oluştur / eşleştir
       const stageToLabelId = await ensureCrmLabels(token, ALL_STAGES)
       const labelIdToStage = Object.fromEntries(
         Object.entries(stageToLabelId).map(([stage, id]) => [id, stage])
@@ -466,12 +591,10 @@ export default function DuygyCRM({ token, onLogout }) {
       setLabelMap(stageToLabelId)
       setProgress(10)
 
-      // 2) Önce tüm mesaj ID'lerini topla
       const sentIds = []
       const receivedIds = []
       let pageToken = null
 
-      // Gönderilen mesaj ID'leri
       setStatusMsg('Gönderilen mailler listeleniyor...')
       do {
         const res = await gmailSearchMessages(token, `from:${MY_EMAIL}`, 500, pageToken)
@@ -481,7 +604,6 @@ export default function DuygyCRM({ token, onLogout }) {
       setProgress(15)
       setStatusMsg(`${sentIds.length} gönderilen mesaj bulundu...`)
 
-      // Alınan mesaj ID'leri
       setStatusMsg('Gelen yanıtlar listeleniyor...')
       pageToken = null
       do {
@@ -494,9 +616,7 @@ export default function DuygyCRM({ token, onLogout }) {
       const totalIds = sentIds.length + receivedIds.length
       setStatusMsg(`${totalIds} mesaj bulundu, detaylar çekiliyor...`)
 
-      // 3) Mesaj detaylarını batch halinde çek
       const allMsgs = []
-
       const sentMsgs = await fetchMessagesBatched(token, sentIds, (count) => {
         setProgress(20 + Math.floor((count / totalIds) * 50))
         setStatusMsg(`${count}/${totalIds} mesaj işlendi...`)
@@ -515,7 +635,6 @@ export default function DuygyCRM({ token, onLogout }) {
       const labelWriteQueue = []
       const ctcts = buildData(allMsgs, labelWriteQueue, stageToLabelId, labelIdToStage)
 
-      // contacts_info'dan doğru isimleri al
       try {
         const infoRows = await fetch('/api/contacts-info').then(r => r.json())
         const infoMap = {}
@@ -536,12 +655,10 @@ export default function DuygyCRM({ token, onLogout }) {
       setLastSync(Date.now())
 
       saveCache({ contacts: ctcts, companies: comps, notes, labelMap: stageToLabelId })
-      // DB'ye kaydet (arka planda)
       dbSaveContacts(ctcts)
       dbSaveLabelMap(stageToLabelId)
       setProgress(90)
 
-      // Label'ları Gmail'e yaz (throttled)
       if (labelWriteQueue.length > 0) {
         const allCrmLabelIds = Object.values(stageToLabelId)
         let written = 0
@@ -574,7 +691,7 @@ export default function DuygyCRM({ token, onLogout }) {
     }
   }, [token, buildData, buildCompanies, fetchMessagesBatched, notes, onLogout])
 
-  // DELTA SYNC (son 48 saat)
+  // DELTA SYNC
   const deltaSync = useCallback(async () => {
     setLoading(true)
     setStatusMsg('Sync ediliyor...')
@@ -595,7 +712,7 @@ export default function DuygyCRM({ token, onLogout }) {
         const comps   = buildCompanies(updated)
         setCompanies(comps)
         saveCache({ contacts: updated, companies: comps, notes })
-        dbSaveContacts(newC) // sadece değişen kişileri DB'ye yaz
+        dbSaveContacts(newC)
         return updated
       })
       setLastSync(Date.now())
@@ -608,7 +725,6 @@ export default function DuygyCRM({ token, onLogout }) {
     }
   }, [token, buildData, buildCompanies, notes, onLogout])
 
-  // Stage değiştir → Gmail etiket güncelle
   const changeStage = useCallback(async (email, newStage) => {
     const contact = contacts.find(c => c.email === email)
     if (!contact) return
@@ -618,13 +734,11 @@ export default function DuygyCRM({ token, onLogout }) {
       const comps   = buildCompanies(updated)
       setCompanies(comps)
       saveCache({ contacts: updated, companies: comps, notes })
-      // DB'ye stage değişikliğini yaz
       const updatedContact = updated.find(c => c.email === email)
       if (updatedContact) dbSaveContacts([updatedContact])
       return updated
     })
 
-    // Gmail etiket güncelle (arka planda)
     if (contact.threadId && labelMap) {
       const newLabelId = labelMap[newStage]
       const allCrmLabelIds = Object.values(labelMap)
@@ -638,7 +752,6 @@ export default function DuygyCRM({ token, onLogout }) {
     }
   }, [contacts, token, buildCompanies, notes, labelMap])
 
-  // Kişi bilgisi güncellendiğinde listeyi de güncelle
   const updateContactInfo = useCallback((email, updates) => {
     setContacts(prev => {
       const updated = prev.map(c => c.email === email ? { ...c, ...updates } : c)
@@ -658,524 +771,630 @@ export default function DuygyCRM({ token, onLogout }) {
     reply:     contacts.filter(c => c.stage === 'needs_reply').length,
   }
 
-  const weeklyC    = contacts.filter(c => daysSince(c.lastContact) <= 7)
-  const overdue    = contacts.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage) && daysSince(c.lastContact) >= 3)
-  const filtered   = contacts.filter(c => {
+  const weeklyC  = contacts.filter(c => daysSince(c.lastContact) <= 7)
+  const overdue  = contacts.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage) && daysSince(c.lastContact) >= 3)
+  const filtered = contacts.filter(c => {
     if (!searchQ) return true
     const q = searchQ.toLowerCase()
     return c.name?.toLowerCase().includes(q) || c.email.includes(q) || c.company?.toLowerCase().includes(q)
   })
 
+  const syncInfo = lastSync
+    ? `Son Tarama: ${new Date(lastSync).toLocaleDateString('tr-TR')} · ${contacts.length} Kişi`
+    : (statusMsg || 'Henüz tarama yapılmadı')
+
   return (
-    <div style={S.app}>
+    <div style={{ minHeight: '100vh', background: C.bg, fontFamily: "'DM Sans', sans-serif", color: C.text }}>
       {/* HEADER */}
-      <header style={S.header}>
-        <div style={S.hLeft}>
-          <span style={S.logo}>Duygu CRM</span>
-          <nav style={S.nav}>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', height: 54, borderBottom: `1px solid ${C.border}`, background: C.white, position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+          <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.3px' }}>Duygu CRM</span>
+          <nav style={{ display: 'flex', gap: 2 }}>
             {TABS.map(t => (
-              <button key={t} style={{ ...S.navBtn, ...(tab === t ? S.navActive : {}) }} onClick={() => setTab(t)}>{t}</button>
+              <button key={t} onClick={() => setTab(t)} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: tab === t ? C.bg2 : 'transparent', color: tab === t ? C.text : C.muted, fontWeight: tab === t ? 500 : 400, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>{t}</button>
             ))}
           </nav>
         </div>
-        <div style={S.hRight}>
-          {statusMsg && <span style={S.statusBadge}>{statusMsg}</span>}
-          {lastSync && <span style={S.lastSyncTxt}>{new Date(lastSync).toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' })}</span>}
-          <button style={S.btn} onClick={deltaSync} disabled={loading}>↻ Sync</button>
-          <button style={{ ...S.btn, ...S.btnPrimary }} onClick={fullScan} disabled={loading}>Tam Tarama</button>
-          <button style={{ ...S.btn, color: '#888' }} onClick={onLogout}>Çıkış</button>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', position: 'relative' }}>
+          {statusMsg && <span style={{ fontSize: 11, color: C.muted, padding: '3px 8px', background: C.bg2, borderRadius: 20, marginRight: 4 }}>{statusMsg}</span>}
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => { setGmailDd(!gmailDd); setLinkedinDd(false) }} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 13, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✉</button>
+            {gmailDd && <Dropdown title="Gmail Tarama" info={syncInfo} btn={loading ? 'Taranıyor...' : 'Tam Tarama Başlat'} onBtnClick={() => { fullScan(); setGmailDd(false) }} onClose={() => setGmailDd(false)} />}
+          </div>
+          <button onClick={deltaSync} disabled={loading} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 13, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Hızlı Sync">↻</button>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => { setLinkedinDd(!linkedinDd); setGmailDd(false) }} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>in</button>
+            {linkedinDd && <Dropdown title="LinkedIn Extension" info="Manuel Import · 4 Adımlı Workflow" btn="LinkedIn Aktar" onBtnClick={() => setLinkedinDd(false)} onClose={() => setLinkedinDd(false)} />}
+          </div>
+          <button onClick={onLogout} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 11, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Çıkış">⏻</button>
         </div>
       </header>
 
+      {(gmailDd || linkedinDd) && <div onClick={() => { setGmailDd(false); setLinkedinDd(false) }} style={{ position: 'fixed', inset: 0, zIndex: 99 }} />}
+
       {/* PROGRESS */}
       {progress > 0 && (
-        <div style={{ height: 3, background: '#E4DBD3' }}>
-          <div style={{ height: '100%', background: '#050500', width: progress + '%', transition: 'width 0.3s' }} />
+        <div style={{ height: 3, background: C.border }}>
+          <div style={{ height: '100%', background: C.text, width: progress + '%', transition: 'width 0.3s' }} />
         </div>
       )}
 
-      {/* SAYFA */}
-      <main style={S.main}>
-        {tab === 'Dashboard'  && <Dashboard stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} />}
-        {tab === 'Pipeline'   && <Pipeline contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} pipeFilter={pipeFilter} setPipeFilter={setPipeFilter} expStage={expStage} setExpStage={setExpStage} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
-        {tab === 'Daily'      && <Daily contacts={contacts} overdue={overdue} />}
-        {tab === 'Companies'  && <Companies companies={companies} selCompany={selCompany} setSelCompany={setSelCompany} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
-        {tab === 'Performans' && <Performans contacts={contacts} stats={stats} />}
+      <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 28px' }}>
+        {tab === 'Dashboard'  && <DashboardPage stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} onNavigate={setTab} />}
+        {tab === 'Pipeline'   && <PipelinePage contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
+        {tab === 'Daily'      && <DailyPage contacts={contacts} overdue={overdue} />}
+        {tab === 'Companies'  && <CompaniesPage companies={companies} selCompany={selCompany} setSelCompany={setSelCompany} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
+        {tab === 'Performans' && <PerformansPage contacts={contacts} stats={stats} />}
       </main>
     </div>
   )
 }
 
-// ── DASHBOARD ─────────────────────────────────────────────────
-function Dashboard({ stats, weeklyC, overdue: rawOverdue, updateContactInfo }) {
+// ═══════════════ DASHBOARD ═══════════════
+
+function DashboardPage({ stats, weeklyC, overdue: rawOverdue, updateContactInfo, onNavigate }) {
+  const [tasks, setTasks] = useState([
+    { id: 1, t: 'Gmail tara & etiketle', d: false },
+    { id: 2, t: 'Personalized Outbound', d: false },
+    { id: 3, t: 'Smartlead Kampanyasını Gözlemle', d: false },
+    { id: 4, t: "LinkedIn'de 25 Bağlantı İsteği Gönder", d: false },
+    { id: 5, t: 'LinkedIn Mesajları', d: false },
+    { id: 6, t: 'KPI Tracker Güncelle', d: false },
+  ])
+  const [copied, setCopied] = useState(false)
+  const [period, setPeriod] = useState('Bu Hafta')
+  const [startDate, setStartDate] = useState('2026-03-01')
+  const [endDate, setEndDate] = useState('2026-04-04')
   const [detailEmail, setDetailEmail] = useState(null)
   const [detailCompany, setDetailCompany] = useState(null)
   const { sortKey, sortDir, toggle, sortFn } = useSortable('days', 'desc')
+
   const overdueGetters = {
     name: c => c.name, company: c => c.company, stage: c => c.stage,
     date: c => new Date(c.lastContact), days: c => daysSince(c.lastContact),
   }
   const overdue = sortFn(rawOverdue, overdueGetters)
+
+  const done = tasks.filter(t => t.d).length
+
+  const statItems = [
+    { l: 'Toplam Kişi', v: stats.total },
+    { l: 'Bu Hafta Aktif', v: weeklyC.length },
+    { l: 'Meeting Held', v: stats.meetings },
+    { l: 'Scheduled', v: stats.scheduled },
+    { l: 'Yanıt Bekliyor', v: stats.reply },
+  ]
+
+  const hubspot = ['Dönüş Alan Mail:', 'Yan Hak Paketleri:', 'Geçmiş Şirketler (Partner Kontrolü):', 'Title & LinkedIn:', 'Sustainable Reports:', 'Org Chart (HR Yapısı):']
+
   const dow = new Date().getDay()
+
   return (
-    <div style={S.page}>
-      <div style={S.remind}>
-        <span style={{ fontSize: 14 }}>⚑</span>
-        <div>
-          {dow === 1 && <div style={S.remindLine}>Pazartesi — Weekly TR-SDR Sync</div>}
-          {dow === 3 && <div style={S.remindLine}>Çarşamba — Mid-Week Check-in</div>}
-          <div style={S.remindLine}>Her gün 09:00 → Gmail tara, etiketle, follow-up listesi hazırla</div>
-          <div style={S.remindLine}>Bir şirketten olumlu yanıt varsa o şirketteki diğer kişilere follow-up gönderme</div>
-        </div>
+    <>
+      <DateFilter period={period} onPeriodChange={setPeriod} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
+
+      {/* Haftalık Skor */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 1, background: C.border, borderRadius: 10, overflow: 'hidden', marginBottom: 20 }}>
+        {statItems.map((s, i) => (
+          <div key={i} style={{ background: C.white, padding: '18px 16px 14px' }}>
+            <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-1px', lineHeight: 1 }}>{s.v}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{s.l}</div>
+          </div>
+        ))}
       </div>
 
-      <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-        <div style={{ flex: 1, minWidth: 300 }}>
-          <div style={S.sTitle}>Haftalık Skor</div>
-          <div style={S.statGrid}>
-            {[
-              ['Toplam Kişi', stats.total],
-              ['Bu Hafta Aktif', weeklyC.length],
-              ['Meeting Held', stats.meetings],
-              ['Scheduled', stats.scheduled],
-              ['Yanıt Bekliyor', stats.reply],
-              ['Aktif Pipeline', stats.active],
-            ].map(([l, v]) => (
-              <div key={l} style={S.statCard}>
-                <div style={S.statNum}>{v}</div>
-                <div style={S.statLbl}>{l}</div>
+      {/* 3 Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 20 }}>
+        {/* Checklist */}
+        <Card>
+          <CardHeader title="Günlük Görevler" right={<Badge color="gray">{done}/{tasks.length}</Badge>} />
+          <div style={{ padding: '4px 0' }}>
+            {tasks.map(t => (
+              <div key={t.id} onClick={() => setTasks(p => p.map(x => x.id === t.id ? { ...x, d: !x.d } : x))} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 16px', cursor: 'pointer' }}>
+                <div style={{ width: 15, height: 15, borderRadius: 4, border: t.d ? 'none' : `1.5px solid ${C.border}`, background: t.d ? C.text : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {t.d && <span style={{ color: C.white, fontSize: 9, fontWeight: 700 }}>✓</span>}
+                </div>
+                <span style={{ fontSize: 12, color: t.d ? C.muted : C.text, textDecoration: t.d ? 'line-through' : 'none' }}>{t.t}</span>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
 
-        <div style={{ width: 260 }}>
-          <div style={S.sTitle}>Günlük Görevler</div>
-          <div style={S.card}>
-            {['Gmail tara & etiketle','Yeni bağlantılara mesaj gönder','Follow-up listesini hazırla','Pipeline stage güncelle','Meeting notlarını kaydet','KPI tablosunu güncelle'].map((t, i) => (
-              <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #F5EFE6', cursor: 'pointer', fontSize: 13 }}>
-                <input type="checkbox" />
-                {t}
-              </label>
+        {/* HubSpot */}
+        <Card>
+          <CardHeader title="HubSpot Toplantı Notu" right={
+            <button onClick={() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }} style={{ fontSize: 10.5, color: copied ? '#0F6E56' : C.muted, background: copied ? '#E1F5EE' : C.bg2, padding: '2px 10px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 500, fontFamily: 'inherit' }}>
+              {copied ? 'Kopyalandı ✓' : 'Kopyala'}
+            </button>
+          } />
+          <div style={{ padding: '8px 16px 12px' }}>
+            {hubspot.map((f, i) => (
+              <div key={i} style={{ fontSize: 11.5, padding: '5px 0', borderBottom: i < hubspot.length - 1 ? `1px solid ${C.bg2}` : 'none' }}>{f}</div>
             ))}
           </div>
-        </div>
+        </Card>
+
+        {/* Unutma */}
+        <Card>
+          <CardHeader title="Unutma" />
+          <div style={{ padding: '8px 16px 10px' }}>
+            {[
+              { day: 'PAZARTESİ', task: 'Weekly TR-SDR Sync', sub: "KPI Tracker'ı Doldurmayı Unutma" },
+              { day: 'ÇARŞAMBA', task: 'Mid-Week Check-in', sub: 'Kampanyalar Nasıl Gidiyor' },
+            ].map((r, i) => (
+              <div key={i} style={{ padding: '7px 0', borderBottom: `1px solid ${C.bg2}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 9, fontWeight: 600, color: C.muted, background: C.bg2, padding: '1px 6px', borderRadius: 3, letterSpacing: '0.5px' }}>{r.day}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{r.task}</span>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{r.sub}</div>
+              </div>
+            ))}
+            {['HubSpot\'a Meeting Notlarını Gir', 'Partner Listesini Kontrol Et', 'Smartlead Sonuçlarını Takip Et'].map((r, i) => (
+              <div key={i} style={{ fontSize: 11, color: C.muted, padding: '3px 0', display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 7, color: C.border }}>●</span>{r}
+              </div>
+            ))}
+          </div>
+        </Card>
       </div>
 
+      {/* Gecikmiş Follow-Up */}
       {overdue.length > 0 && (
-        <>
-          <div style={S.sTitle}>
-            Gecikmiş Follow-Up
-            <span style={{ ...S.badge, background: '#FEE2E2', color: '#DC2626', marginLeft: 8 }}>Acil — {overdue.length}</span>
-          </div>
-          <div style={S.tableWrap}>
-            <table style={S.table}>
-              <thead><tr>
+        <Card style={{ marginBottom: 20 }}>
+          <CardHeader title="Gecikmiş Follow-Up" right={<Badge color="red">Acil — {overdue.length}</Badge>} />
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
                 {[['name','Kişi'],['company','Şirket'],['stage','Stage'],['date','Son İletişim'],['days','Gün']].map(([k,l]) =>
                   <SortTh key={k} label={l} sortKey={k} currentKey={sortKey} currentDir={sortDir} onToggle={toggle} />
                 )}
-              </tr></thead>
-              <tbody>
-                {overdue.slice(0, 8).map(c => (
-                  <tr key={c.email} style={S.tr}>
-                    <td style={{ ...S.td, cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}><div style={{ fontWeight: 500, color: '#3B82F6' }}>{c.name}</div><div style={{ fontSize: 11, color: '#888' }}>{c.email}</div></td>
-                    <td style={{ ...S.td, cursor: 'pointer', color: '#3B82F6' }} onClick={() => setDetailCompany(c.company)}>{c.company}</td>
-                    <td style={S.td}><StagePill stage={c.stage} /></td>
-                    <td style={S.td}>{fmtDate(c.lastContact)}</td>
-                    <td style={{ ...S.td, color: '#EF4444', fontWeight: 500 }}>{daysSince(c.lastContact)}g</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+              </tr>
+            </thead>
+            <tbody>
+              {overdue.slice(0, 8).map(c => (
+                <tr key={c.email} style={{ borderBottom: `1px solid ${C.bg2}` }}>
+                  <td style={{ padding: '10px 14px', cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}>
+                    <div style={{ fontWeight: 500, fontSize: 12.5, color: '#3B82F6' }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: C.muted }}>{c.email}</div>
+                  </td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setDetailCompany(c.company)}>{c.company}</td>
+                  <td style={{ padding: '10px 14px' }}><StagePill stage={c.stage} /></td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>{fmtDate(c.lastContact)}</td>
+                  <td style={{ padding: '10px 14px', color: '#EF4444', fontWeight: 500, fontSize: 12 }}>{daysSince(c.lastContact)}g</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
+
+      {/* Performans Özet */}
+      <Card style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 500 }}>Performans Özet</span>
+          <span style={{ fontSize: 11.5, color: C.muted }}>Bu Hafta: {weeklyC.length} Aktif · {stats.meetings} Meeting · {stats.reply} Yanıt Bekliyor</span>
+        </div>
+        <span onClick={() => onNavigate('Performans')} style={{ fontSize: 11, color: C.muted, textDecoration: 'underline', cursor: 'pointer' }}>Detay →</span>
+      </Card>
+
       {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} onSave={updateContactInfo} />}
       {detailCompany && <CompanyDetailModal companyName={detailCompany} onClose={() => setDetailCompany(null)} />}
-    </div>
+    </>
   )
 }
 
-// ── PIPELINE ──────────────────────────────────────────────────
-function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, expStage, setExpStage, changeStage, updateContactInfo }) {
+// ═══════════════ PIPELINE ═══════════════
+
+function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContactInfo }) {
+  const [channel, setChannel] = useState('Email')
+  const [period, setPeriod] = useState('Tümü')
+  const [startDate, setStartDate] = useState('2026-03-01')
+  const [endDate, setEndDate] = useState('2026-04-04')
+  const [selectedStage, setSelectedStage] = useState(null)
   const [detailEmail, setDetailEmail] = useState(null)
+
+  // Stage'leri grupla
+  const stageGroups = PIPELINE_STAGES.map(stage => {
+    const sc = contacts.filter(c => c.stage === stage)
+    const meta = STAGE_META[stage]
+    return { key: stage, name: meta.label, count: sc.length, contacts: sc, color: meta.color }
+  })
+
+  const activeStage = selectedStage !== null ? stageGroups.find(s => s.key === selectedStage) : null
+
   return (
-    <div style={S.page}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <input style={S.search} placeholder="Kişi, şirket veya email ara..." value={searchQ} onChange={e => setSearchQ(e.target.value)} />
+    <>
+      <DateFilter period={period} onPeriodChange={(p) => { setPeriod(p); setSelectedStage(null) }} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
+
+      {/* Kanal Filtresi + Arama */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <FilterBar filters={['Email', 'LinkedIn', 'Smartlead']} active={channel} onSelect={(v) => { setChannel(v); setSelectedStage(null) }} />
+        <input style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit', background: C.white, outline: 'none', color: C.text, width: 220 }} placeholder="Kişi, şirket ara..." value={searchQ} onChange={e => setSearchQ(e.target.value)} />
       </div>
-      <div style={S.pipeGrid}>
-        {PIPELINE_STAGES.map(stage => {
-          const sc   = contacts.filter(c => c.stage === stage)
-          const meta = STAGE_META[stage]
-          const exp  = expStage === stage
+
+      {/* Stage Kartları */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+        {stageGroups.map((s) => {
+          const isSelected = selectedStage === s.key
           return (
-            <div key={stage} style={S.stageCol}>
-              <div style={{ ...S.stageHdr, borderLeftColor: meta.color, cursor: 'pointer' }} onClick={() => setExpStage(exp ? null : stage)}>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{meta.label}</span>
-                <span style={{ ...S.badge, background: meta.color + '20', color: meta.color }}>{sc.length}</span>
+            <div key={s.key} onClick={() => setSelectedStage(isSelected ? null : s.key)} style={{
+              background: C.white, borderRadius: 10,
+              border: `1.5px solid ${isSelected ? C.text : C.border}`,
+              cursor: 'pointer', padding: '16px 18px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              transition: 'border-color 0.12s'
+            }}
+              onMouseEnter={e => { if (!isSelected) e.currentTarget.style.borderColor = C.muted }}
+              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.borderColor = C.border }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 4, height: 20, borderRadius: 2, background: s.color }} />
+                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</span>
               </div>
-              <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {sc.length === 0
-                  ? <div style={{ fontSize: 12, color: '#bbb', padding: '4px 0' }}>Boş</div>
-                  : sc.slice(0, exp ? 999 : 3).map(c => (
-                      <ContactCard key={c.email} contact={c} onStageChange={changeStage} compact={!exp} onClickDetail={() => setDetailEmail(c.email)} />
-                    ))
-                }
-                {!exp && sc.length > 3 && (
-                  <button style={S.showMore} onClick={() => setExpStage(stage)}>+{sc.length - 3} daha</button>
-                )}
-              </div>
+              <span style={{ fontSize: 22, fontWeight: 600, color: s.count > 0 ? C.text : C.muted }}>{s.count}</span>
             </div>
           )
         })}
       </div>
+
+      {/* Seçilen Stage'in Kişileri */}
+      {activeStage && activeStage.contacts.length > 0 && (
+        <Card>
+          <div style={{ padding: '14px 18px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 500 }}>{activeStage.name}</span>
+              <Badge color="gray">{activeStage.count} Kişi</Badge>
+            </div>
+            <button onClick={() => setSelectedStage(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: C.muted, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {['Ad Soyad', 'Şirket', 'E-Posta', 'Son İletişim', 'Stage'].map(h => (
+                  <th key={h} style={{ padding: '10px 18px', textAlign: 'left', fontSize: 11, fontWeight: 500, color: C.muted }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activeStage.contacts.slice(0, 20).map((c) => (
+                <tr key={c.email} style={{ borderBottom: `1px solid ${C.bg2}` }}>
+                  <td style={{ padding: '10px 18px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={() => setDetailEmail(c.email)}>{c.name}</td>
+                  <td style={{ padding: '10px 18px', fontSize: 12, color: C.muted }}>{c.company}</td>
+                  <td style={{ padding: '10px 18px', fontSize: 11.5, color: C.muted }}>{c.email}</td>
+                  <td style={{ padding: '10px 18px', fontSize: 11.5, color: C.muted }}>{fmtDate(c.lastContact)}</td>
+                  <td style={{ padding: '10px 18px' }} onClick={e => e.stopPropagation()}>
+                    <select style={{ fontSize: 11, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} value={c.stage} onChange={e => changeStage(c.email, e.target.value)}>
+                      {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {activeStage.count > 20 && (
+            <div style={{ padding: '10px 18px', fontSize: 11, color: C.muted, borderTop: `1px solid ${C.bg2}` }}>
+              +{activeStage.count - 20} Kişi Daha...
+            </div>
+          )}
+        </Card>
+      )}
+
       {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} onSave={updateContactInfo} />}
-    </div>
+    </>
   )
 }
 
-// ── DAILY ─────────────────────────────────────────────────────
-function Daily({ contacts, overdue }) {
-  const sections = [
-    { title: 'Needs Reply',           contacts: contacts.filter(c => c.stage === 'needs_reply'),          color: '#F59E0B', urgent: true },
-    { title: 'Gecikmiş Follow-Up',    contacts: overdue,                                                  color: '#EF4444', urgent: true },
-    { title: '1. Follow Up Gerekli',  contacts: contacts.filter(c => c.stage === 'follow_up_1'),          color: '#8B5CF6' },
-    { title: '2. Follow Up Gerekli',  contacts: contacts.filter(c => c.stage === 'follow_up_2'),          color: '#7C3AED' },
-    { title: 'Processing - Meeting',  contacts: contacts.filter(c => c.stage === 'processing_meeting'),   color: '#3B82F6' },
-  ].filter(s => s.contacts.length > 0)
+// ═══════════════ DAILY ═══════════════
 
-  const dow = new Date().getDay()
+function DailyPage({ contacts, overdue }) {
+  const [period, setPeriod] = useState('Bugün')
+  const [startDate, setStartDate] = useState('2026-03-01')
+  const [endDate, setEndDate] = useState('2026-04-04')
+
+  // Şirket bazlı gruplama
+  const groupByCompany = (ctcts) => {
+    const map = {}
+    ctcts.forEach(c => {
+      const key = c.company || c.domain
+      if (!map[key]) map[key] = { company: key, contacts: [], lastContact: c.lastContact }
+      map[key].contacts.push(c)
+      if (new Date(c.lastContact) > new Date(map[key].lastContact)) map[key].lastContact = c.lastContact
+    })
+    return Object.values(map).map(g => ({
+      company: g.company, count: g.contacts.length, date: fmtDate(g.lastContact)
+    }))
+  }
+
+  const fu1Contacts = contacts.filter(c => c.stage === 'follow_up_1')
+  const fu2Contacts = contacts.filter(c => c.stage === 'follow_up_2')
+  const needsReply = contacts.filter(c => c.stage === 'needs_reply')
+  const processing = contacts.filter(c => c.stage === 'processing_meeting')
+
+  const fu1 = groupByCompany(fu1Contacts)
+  const fu2 = groupByCompany(fu2Contacts)
+  const overdueGrouped = groupByCompany(overdue)
+  const needsReplyGrouped = groupByCompany(needsReply)
 
   return (
-    <div style={S.page}>
-      <div style={S.remind}>
-        <span style={{ fontSize: 14 }}>⚑</span>
-        <div>
-          {dow === 1 && <div style={S.remindLine}>Pazartesi — Weekly TR-SDR Sync</div>}
-          {dow === 3 && <div style={S.remindLine}>Çarşamba — Mid-Week Check-in</div>}
-          <div style={S.remindLine}>Her 2 günde bir: Yanıt vermeyen kişiler için follow-up taslağı hazırla</div>
+    <>
+      <DateFilter period={period} onPeriodChange={setPeriod} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
+
+      {/* Unutma */}
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ padding: '14px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Unutma</div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {[
+              { day: 'PAZARTESİ', task: 'Weekly TR-SDR Sync', sub: 'KPI Tracker Doldur' },
+              { day: 'ÇARŞAMBA', task: 'Mid-Week Check-in', sub: 'Kampanya Kontrolü' },
+            ].map((r, i) => (
+              <div key={i} style={{ flex: 1, background: C.bg2, borderRadius: 8, padding: '10px 14px' }}>
+                <span style={{ fontSize: 9, fontWeight: 600, color: C.muted, letterSpacing: '0.5px' }}>{r.day}</span>
+                <div style={{ fontSize: 12.5, fontWeight: 500, marginTop: 2 }}>{r.task}</div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{r.sub}</div>
+              </div>
+            ))}
+          </div>
         </div>
+      </Card>
+
+      {/* Needs Reply */}
+      {needsReply.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <FUCard title="Yanıt Bekliyor" items={needsReplyGrouped} total={needsReply.length} color="amber" urgent />
+        </div>
+      )}
+
+      {/* Follow Up Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        <FUCard title="1. Follow Up Gerekli" items={fu1} total={fu1Contacts.length} color="blue" />
+        <FUCard title="2. Follow Up Gerekli" items={fu2} total={fu2Contacts.length} color="amber" />
+        <FUCard title="Gecikmiş Follow Up" items={overdueGrouped} total={overdue.length} color="red" urgent />
       </div>
-      {sections.map(s => <DailySection key={s.title} {...s} />)}
-    </div>
+
+      {/* Processing - Meeting */}
+      {processing.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <FUCard title="Processing - Meeting" items={groupByCompany(processing)} total={processing.length} color="blue" />
+        </div>
+      )}
+    </>
   )
 }
 
-function DailySection({ title, contacts, color, urgent }) {
-  const [open, setOpen] = useState(true)
-  const byCompany = {}
-  contacts.forEach(c => {
-    if (!byCompany[c.company]) byCompany[c.company] = []
-    byCompany[c.company].push(c)
-  })
-  return (
-    <div style={{ ...S.card, borderLeft: `3px solid ${color}`, marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: open ? 10 : 0 }} onClick={() => setOpen(!open)}>
-        <span style={{ fontSize: 14, fontWeight: 500 }}>{title}</span>
-        {urgent && <span style={{ ...S.badge, background: color + '20', color, fontSize: 11 }}>Acil</span>}
-        <span style={{ ...S.badge, background: '#F5EFE6', color: '#888', fontSize: 11 }}>{contacts.length}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#bbb' }}>{open ? '▲' : '▼'}</span>
-      </div>
-      {open && Object.entries(byCompany).map(([company, ctcts]) => (
-        <div key={company} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderBottom: '1px solid #F5EFE6', fontSize: 13 }}>
-          <span style={{ fontWeight: 500, minWidth: 140 }}>{company}</span>
-          <span style={{ color: '#888', fontSize: 12 }}>{ctcts.length} kişi</span>
-          <span style={{ color: '#bbb', fontSize: 12, marginLeft: 'auto' }}>{fmtDate(ctcts[0].lastContact)}</span>
-          {urgent && <span style={{ color: '#EF4444', fontSize: 11, fontWeight: 500 }}>{daysSince(ctcts[0].lastContact)}g</span>}
-        </div>
-      ))}
-    </div>
-  )
-}
+// ═══════════════ COMPANIES ═══════════════
 
-// ── COMPANIES ─────────────────────────────────────────────────
-function Companies({ companies, selCompany, setSelCompany, notes, setNotes, changeStage, updateContactInfo }) {
+function CompaniesPage({ companies, selCompany, setSelCompany, notes, setNotes, changeStage, updateContactInfo }) {
   const [search, setSearch] = useState('')
   const [detailCompany, setDetailCompany] = useState(null)
   const [detailEmail, setDetailEmail] = useState(null)
+  const [period, setPeriod] = useState('Tümü')
+  const [startDate, setStartDate] = useState('2026-03-01')
+  const [endDate, setEndDate] = useState('2026-04-04')
   const { sortKey, sortDir, toggle, sortFn } = useSortable('date', 'desc')
+
   const compGetters = {
     company: c => c.name, domain: c => c.domain, stage: c => c.stage,
     count: c => c.contacts.length, date: c => new Date(c.lastContact),
   }
+
   const filtered = Object.values(companies).filter(c =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.domain.includes(search.toLowerCase())
   )
   const list = sortFn(filtered, compGetters)
   const sel = selCompany ? companies[selCompany] : null
 
+  const statusColor = (s) => {
+    if (!s) return 'gray'
+    if (s.includes('follow_up')) return 'amber'
+    if (s === 'needs_reply') return 'amber'
+    if (s === 'meeting_scheduled' || s === 'meeting_held' || s === 'processing_meeting') return 'green'
+    if (s === 'reached_out') return 'blue'
+    if (s === 'not_interested' || s === 'bounce') return 'red'
+    return 'gray'
+  }
+
   return (
-    <div style={{ display: 'flex', gap: '1.25rem' }}>
-      <div style={{ flex: 1, overflow: 'auto' }}>
-        <input style={{ ...S.search, marginBottom: '1rem', width: '100%' }} placeholder="Şirket ara..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div style={S.tableWrap}>
-          <table style={S.table}>
-            <thead><tr>
-              {[['company','Şirket'],['domain','Domain'],['stage','Stage'],['count','Kişi'],['date','Son İletişim']].map(([k,l]) =>
-                <SortTh key={k} label={l} sortKey={k} currentKey={sortKey} currentDir={sortDir} onToggle={toggle} />
-              )}
-            </tr></thead>
-            <tbody>
-              {list.map(c => (
-                <tr key={c.domain} style={{ ...S.tr, cursor: 'pointer', background: selCompany === c.domain ? '#F5EFE6' : '' }} onClick={() => setSelCompany(c.domain)}>
-                  <td style={{ ...S.td, fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={(e) => { e.stopPropagation(); setDetailCompany(c.name) }}>{c.name}</td>
-                  <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{c.domain}</td>
-                  <td style={S.td} onClick={e => e.stopPropagation()}>
-                    <select style={{ ...S.stageSelect, width: 'auto', marginTop: 0, fontSize: 12 }} value={c.stage} onChange={e => {
-                      const newStage = e.target.value
-                      c.contacts.forEach(ct => changeStage(ct.email, newStage))
-                    }}>
-                      {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
-                    </select>
-                  </td>
-                  <td style={S.td}>{c.contacts.length}</td>
-                  <td style={S.td}>{fmtDate(c.lastContact)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {sel && (
-        <div style={S.detailPanel}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 600 }}>{sel.name}</div>
-              <div style={{ fontSize: 12, color: '#888' }}>{sel.domain}</div>
-            </div>
-            <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#888' }} onClick={() => setSelCompany(null)}>✕</button>
+    <>
+      <DateFilter period={period} onPeriodChange={setPeriod} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
+      <div style={{ display: 'flex', gap: 16, minHeight: 500 }}>
+        {/* Sol: Tablo */}
+        <div style={{ flex: sel ? '0 0 55%' : 1 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Şirket Ara..." style={{ flex: 1, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', background: C.white, outline: 'none', color: C.text }} />
           </div>
-          <select style={{ ...S.stageSelect, width: 'auto', marginTop: 0 }} value={sel.stage} onChange={e => {
-            const newStage = e.target.value
-            sel.contacts.forEach(ct => changeStage(ct.email, newStage))
-          }}>
-            {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
-          </select>
-          <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>{fmtDate(sel.lastContact)}</span>
 
-          <div style={{ ...S.sTitle, marginTop: '1rem' }}>Kişiler ({sel.contacts.length})</div>
-          {sel.contacts.map(c => (
-            <div key={c.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #F5EFE6', cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}>
-              <div style={S.avatar}>{initials(c.name)}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
-                <div style={{ fontSize: 11, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</div>
-              </div>
-              <StagePill stage={c.stage} small />
-            </div>
-          ))}
-
-          <div style={{ ...S.sTitle, marginTop: '1rem' }}>Not</div>
-          <textarea
-            style={S.noteArea}
-            placeholder="Bu şirket için notlar..."
-            value={notes[sel.domain] || ''}
-            onChange={e => {
-              const val = e.target.value
-              const updated = { ...notes, [sel.domain]: val }
-              setNotes(updated)
-              const cache = loadCache()
-              if (cache) saveCache({ ...cache, notes: updated })
-              // DB'ye kaydet (debounce olmadan, her tuşta)
-              dbSaveNotes(sel.domain, val)
-            }}
-          />
+          <Card>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                  {[['company','Şirket Adı'],['domain','Domain'],['stage','Statü'],['count','Kişi'],['date','Son İletişim']].map(([k,l]) =>
+                    <SortTh key={k} label={l} sortKey={k} currentKey={sortKey} currentDir={sortDir} onToggle={toggle} />
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {list.map(c => (
+                  <tr key={c.name} onClick={() => setSelCompany(c.name.toLowerCase())} style={{ borderBottom: `1px solid ${C.bg2}`, cursor: 'pointer', background: selCompany === c.name.toLowerCase() ? C.bg2 : 'transparent', transition: 'background 0.1s' }}
+                    onMouseEnter={e => { if (selCompany !== c.name.toLowerCase()) e.currentTarget.style.background = C.bg }}
+                    onMouseLeave={e => { if (selCompany !== c.name.toLowerCase()) e.currentTarget.style.background = 'transparent' }}>
+                    <td style={{ padding: '10px 14px', fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={(e) => { e.stopPropagation(); setDetailCompany(c.name) }}>{c.name}</td>
+                    <td style={{ padding: '10px 14px', color: C.muted, fontSize: 11.5 }}>{c.domain}</td>
+                    <td style={{ padding: '10px 14px' }} onClick={e => e.stopPropagation()}>
+                      <select style={{ fontSize: 11, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} value={c.stage} onChange={e => {
+                        const newStage = e.target.value
+                        c.contacts.forEach(ct => changeStage(ct.email, newStage))
+                      }}>
+                        {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'center' }}>{c.contacts.length}</td>
+                    <td style={{ padding: '10px 14px', color: C.muted }}>{fmtDate(c.lastContact)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
         </div>
-      )}
+
+        {/* Sağ: Detay Paneli */}
+        {sel && (
+          <div style={{ flex: '0 0 43%', position: 'sticky', top: 70, alignSelf: 'flex-start' }}>
+            <Card>
+              <div style={{ padding: '16px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{sel.name}</div>
+                  <div style={{ fontSize: 11.5, color: C.muted }}>{sel.domain}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <Badge color={statusColor(sel.stage)}>{STAGE_META[sel.stage]?.label || sel.stage}</Badge>
+                  <button onClick={() => setSelCompany(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: C.muted, cursor: 'pointer', lineHeight: 1 }}>×</button>
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 500 }}>Kişiler ({sel.contacts.length})</span>
+                </div>
+                {sel.contacts.map((c, i) => (
+                  <div key={c.email} style={{ padding: '8px 0', borderBottom: i < sel.contacts.length - 1 ? `1px solid ${C.bg2}` : 'none', cursor: 'pointer' }} onClick={() => setDetailEmail(c.email)}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 500 }}>{c.name}</span>
+                      <StagePill stage={c.stage} small />
+                    </div>
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{c.email}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>Son İletişim: {fmtDate(c.lastContact)}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ padding: '10px 18px' }}>
+                <textarea placeholder="Not Ekle..." style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit', resize: 'vertical', minHeight: 50, outline: 'none', background: C.bg2, color: C.text, boxSizing: 'border-box' }}
+                  value={notes[sel.domain] || ''}
+                  onChange={e => {
+                    const val = e.target.value
+                    const updated = { ...notes, [sel.domain]: val }
+                    setNotes(updated)
+                    const cache = loadCache()
+                    if (cache) saveCache({ ...cache, notes: updated })
+                    dbSaveNotes(sel.domain, val)
+                  }}
+                />
+              </div>
+            </Card>
+          </div>
+        )}
+      </div>
       {detailCompany && <CompanyDetailModal companyName={detailCompany} onClose={() => setDetailCompany(null)} />}
       {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} onSave={updateContactInfo} />}
-    </div>
+    </>
   )
 }
 
-// ── PERFORMANS ────────────────────────────────────────────────
-function Performans({ contacts, stats }) {
-  const funnel = [
-    ['Reached Out', contacts.filter(c => c.stage === 'reached_out').length],
-    ['Follow Up',   contacts.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage)).length],
-    ['Processing',  contacts.filter(c => c.stage === 'processing_meeting').length],
-    ['Scheduled',   stats.scheduled],
-    ['Held',        stats.meetings],
+// ═══════════════ PERFORMANS ═══════════════
+
+function PerformansPage({ contacts, stats }) {
+  const [period, setPeriod] = useState('Bu Hafta')
+  const [startDate, setStartDate] = useState('2026-03-01')
+  const [endDate, setEndDate] = useState('2026-04-04')
+
+  const kpis = [
+    { label: 'Meeting Held', current: stats.meetings, target: KPI.meetings, unit: '' },
+    { label: 'Meeting Scheduled', current: stats.scheduled, target: 50, unit: '' },
+    { label: 'Aktif Pipeline', current: stats.active, target: 200, unit: '' },
+    { label: 'Yanıt Bekliyor', current: stats.reply, target: 20, unit: '' },
+    { label: 'Pipeline ($)', current: stats.active * 8000, target: KPI.pipeline, unit: '$' },
   ]
-  const maxF = funnel[0][1] || 1
-  const colors = ['#6B7280','#8B5CF6','#3B82F6','#10B981','#059669']
+
+  const funnel = [
+    { stage: 'Reached Out', count: contacts.filter(c => c.stage === 'reached_out').length },
+    { stage: 'Follow Up', count: contacts.filter(c => ['follow_up_1','follow_up_2'].includes(c.stage)).length },
+    { stage: 'Processing', count: contacts.filter(c => c.stage === 'processing_meeting').length },
+    { stage: 'Scheduled', count: stats.scheduled },
+    { stage: 'Meeting Held', count: stats.meetings },
+    { stage: 'Not Interested', count: contacts.filter(c => c.stage === 'not_interested').length },
+  ]
+  const maxF = funnel[0].count || 1
 
   return (
-    <div style={S.page}>
-      <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-        <div style={{ flex: 1, minWidth: 300 }}>
-          <div style={S.sTitle}>KPI vs Hedef</div>
-          <div style={S.card}>
-            {[
-              { label: 'Meeting Held', val: stats.meetings, target: KPI.meetings, color: '#10B981', prefix: '' },
-              { label: 'Pipeline (tahmini)', val: stats.active * 8000, target: KPI.pipeline, color: '#3B82F6', prefix: '$' },
-            ].map(k => (
-              <div key={k.label} style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-                  <span style={{ color: '#888' }}>{k.label}</span>
-                  <span><strong>{k.prefix}{k.val.toLocaleString()}</strong><span style={{ color: '#bbb', fontSize: 12 }}> / {k.prefix}{k.target.toLocaleString()}</span></span>
-                </div>
-                <div style={{ background: '#F5EFE6', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                  <div style={{ background: k.color, height: '100%', width: Math.min(100, Math.round(k.val / k.target * 100)) + '%', borderRadius: 4 }} />
-                </div>
-                <div style={{ fontSize: 11, color: '#bbb', marginTop: 4 }}>%{Math.min(100, Math.round(k.val / k.target * 100))} hedefe ulaşıldı</div>
-              </div>
-            ))}
-          </div>
-        </div>
+    <>
+      <DateFilter period={period} onPeriodChange={setPeriod} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
 
-        <div style={{ width: 260 }}>
-          <div style={S.sTitle}>Conversion Funnel</div>
-          <div style={S.card}>
-            {funnel.map(([label, val], i) => (
-              <div key={label} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ color: '#888' }}>{label}</span>
-                  <strong>{val}</strong>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        {/* KPI vs Hedef */}
+        <Card>
+          <CardHeader title="KPI Vs Hedef" right={<span style={{ fontSize: 10.5, color: C.muted }}>Yıllık: {KPI.meetings} Mtg · ${(KPI.pipeline/1000000).toFixed(1)}M</span>} />
+          <div style={{ padding: '8px 0' }}>
+            {kpis.map((k, i) => {
+              const pct = Math.min((k.current / k.target) * 100, 100)
+              return (
+                <div key={i} style={{ padding: '8px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 500 }}>{k.label}</span>
+                    <span style={{ color: C.muted }}>{k.unit === '$' ? '$' : ''}{k.current.toLocaleString()}{k.unit !== '$' ? k.unit : ''} / {k.unit === '$' ? '$' : ''}{k.target.toLocaleString()}{k.unit !== '$' ? k.unit : ''}</span>
+                  </div>
+                  <div style={{ height: 6, background: C.bg2, borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: pct >= 80 ? '#1D9E75' : pct >= 50 ? '#EF9F27' : '#E24B4A', borderRadius: 3 }} />
+                  </div>
                 </div>
-                <div style={{ background: '#F5EFE6', borderRadius: 3, height: 6, overflow: 'hidden' }}>
-                  <div style={{ background: colors[i], height: '100%', width: Math.round(val / maxF * 100) + '%' }} />
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
-        </div>
+        </Card>
+
+        {/* Conversion Funnel */}
+        <Card>
+          <CardHeader title="Conversion Funnel" />
+          <div style={{ padding: '8px 0' }}>
+            {funnel.map((f, i) => {
+              const rate = funnel[0].count ? ((f.count / funnel[0].count) * 100).toFixed(1) + '%' : '0%'
+              return (
+                <div key={i} style={{ padding: '8px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < funnel.length - 1 ? `1px solid ${C.bg2}` : 'none' }}>
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{f.stage}</span>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12 }}>{f.count}</span>
+                    <span style={{ fontSize: 11, color: C.muted, minWidth: 40, textAlign: 'right' }}>{rate}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
       </div>
 
-      <div style={S.sTitle}>Stage Dağılımı</div>
-      <div style={S.statGrid}>
-        {Object.entries(STAGE_META).map(([stage, meta]) => (
-          <div key={stage} style={{ ...S.statCard, borderLeft: `3px solid ${meta.color}` }}>
-            <div style={{ ...S.statNum, fontSize: 20 }}>{contacts.filter(c => c.stage === stage).length}</div>
-            <div style={{ ...S.statLbl, fontSize: 11 }}>{meta.label}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── SORTABLE TABLE HEADER ─────────────────────────────────────
-function useSortable(defaultKey = null, defaultDir = 'asc') {
-  const [sortKey, setSortKey] = useState(defaultKey)
-  const [sortDir, setSortDir] = useState(defaultDir)
-  const toggle = (key) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
-  }
-  const sortFn = (data, getters) => {
-    if (!sortKey || !getters[sortKey]) return data
-    const getter = getters[sortKey]
-    return [...data].sort((a, b) => {
-      let va = getter(a), vb = getter(b)
-      if (va == null) va = ''
-      if (vb == null) vb = ''
-      if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va
-      if (va instanceof Date && vb instanceof Date) return sortDir === 'asc' ? va - vb : vb - va
-      va = String(va).toLowerCase(); vb = String(vb).toLowerCase()
-      if (va < vb) return sortDir === 'asc' ? -1 : 1
-      if (va > vb) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
-  }
-  return { sortKey, sortDir, toggle, sortFn }
-}
-
-function SortTh({ label, sortKey, currentKey, currentDir, onToggle }) {
-  const active = currentKey === sortKey
-  return (
-    <th
-      style={{ ...S.th, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
-      onClick={() => onToggle(sortKey)}
-    >
-      {label} <span style={{ fontSize: 10, color: active ? '#050500' : '#ccc', marginLeft: 2 }}>
-        {active ? (currentDir === 'asc' ? '▲' : '▼') : '⇅'}
-      </span>
-    </th>
-  )
-}
-
-// ── CONTACT CARD ──────────────────────────────────────────────
-function ContactCard({ contact: c, onStageChange, compact, onClickDetail }) {
-  return (
-    <div style={{ background: '#F5EFE6', borderRadius: 8, padding: '8px 10px', cursor: 'pointer' }} onClick={() => onClickDetail?.()}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <div style={{ ...S.avatar, width: 28, height: 28, fontSize: 11, flexShrink: 0 }}>{initials(c.name)}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</div>
-          <div style={{ fontSize: 11, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</div>
-        </div>
-        <div style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>{daysSince(c.lastContact)}g</div>
-      </div>
-      {!compact && (
-        <select style={S.stageSelect} value={c.stage} onClick={e => e.stopPropagation()} onChange={e => onStageChange(c.email, e.target.value)}>
-          {Object.entries(STAGE_META).map(([s, m]) => (
-            <option key={s} value={s}>{m.label}</option>
+      {/* Stage Dağılımı */}
+      <Card style={{ marginTop: 16 }}>
+        <CardHeader title="Stage Dağılımı" />
+        <div style={{ padding: '12px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
+          {Object.entries(STAGE_META).map(([stage, meta]) => (
+            <div key={stage} style={{ background: C.bg2, borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${meta.color}` }}>
+              <div style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>{contacts.filter(c => c.stage === stage).length}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{meta.label}</div>
+            </div>
           ))}
-        </select>
-      )}
-    </div>
+        </div>
+      </Card>
+
+      {/* Trend */}
+      <Card style={{ marginTop: 16 }}>
+        <CardHeader title="Trend Çizgisi" right={<span style={{ fontSize: 10.5, color: C.muted }}>Son 8 Hafta</span>} />
+        <div style={{ padding: '16px 16px 12px', display: 'flex', alignItems: 'flex-end', gap: 6, height: 120 }}>
+          {[8, 14, 12, 22, 18, 26, 20, 24].map((v, i) => (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 9, color: C.muted }}>{v}</span>
+              <div style={{ width: '100%', height: `${(v / 30) * 100}%`, background: C.text, borderRadius: 3, minHeight: 4, opacity: i === 7 ? 1 : 0.3 }} />
+              <span style={{ fontSize: 8.5, color: C.muted }}>H{i + 1}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </>
   )
 }
 
-// ── STAGE PILL ────────────────────────────────────────────────
-function StagePill({ stage, small }) {
-  const meta = STAGE_META[stage] || { label: stage, color: '#9CA3AF' }
-  return (
-    <span style={{
-      fontSize: small ? 10 : 11, padding: small ? '1px 6px' : '2px 8px',
-      borderRadius: 20, background: meta.color + '20', color: meta.color,
-      fontWeight: 500, whiteSpace: 'nowrap',
-    }}>{meta.label}</span>
-  )
-}
+// ═══════════════ KİŞİ DETAY MODAL ═══════════════
 
-// ── STYLES ────────────────────────────────────────────────────
-const S = {
-  app:        { fontFamily: "'DM Sans', sans-serif", background: '#FAF4EB', minHeight: '100vh' },
-  header:     { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 1.5rem', height: 52, background: '#FFFFFF', borderBottom: '1px solid #E4DBD3', position: 'sticky', top: 0, zIndex: 100 },
-  hLeft:      { display: 'flex', alignItems: 'center', gap: '1.5rem' },
-  hRight:     { display: 'flex', alignItems: 'center', gap: 8 },
-  logo:       { fontSize: 15, fontWeight: 700, color: '#050500', letterSpacing: '-0.02em' },
-  nav:        { display: 'flex', gap: 2 },
-  navBtn:     { background: 'none', border: 'none', padding: '5px 12px', fontSize: 13, color: '#888', cursor: 'pointer', borderRadius: 6 },
-  navActive:  { background: '#F5EFE6', color: '#050500', fontWeight: 500 },
-  statusBadge:{ fontSize: 11, color: '#888', padding: '3px 8px', background: '#F5EFE6', borderRadius: 20 },
-  lastSyncTxt:{ fontSize: 11, color: '#bbb' },
-  btn:        { fontSize: 12, padding: '5px 12px', border: '1px solid #E4DBD3', borderRadius: 6, background: '#FFFFFF', cursor: 'pointer', color: '#050500' },
-  btnPrimary: { background: '#050500', color: '#FAF4EB', border: 'none' },
-  main:       { padding: '1.5rem' },
-  page:       { maxWidth: 1100, margin: '0 auto' },
-  sTitle:     { fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 },
-  card:       { background: '#FFFFFF', border: '1px solid #E4DBD3', borderRadius: 10, padding: '12px 14px' },
-  statGrid:   { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginBottom: '1.25rem' },
-  statCard:   { background: '#FFFFFF', border: '1px solid #E4DBD3', borderRadius: 10, padding: '12px 14px' },
-  statNum:    { fontSize: 26, fontWeight: 600, color: '#050500', lineHeight: 1.1 },
-  statLbl:    { fontSize: 12, color: '#888', marginTop: 3 },
-  tableWrap:  { background: '#FFFFFF', borderRadius: 10, border: '1px solid #E4DBD3', overflow: 'hidden' },
-  table:      { width: '100%', borderCollapse: 'collapse' },
-  th:         { padding: '9px 14px', fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', borderBottom: '1px solid #E4DBD3', background: '#FAF4EB' },
-  tr:         { borderBottom: '1px solid #F5EFE6' },
-  td:         { padding: '10px 14px', fontSize: 13, color: '#050500' },
-  badge:      { display: 'inline-block', fontSize: 11, padding: '2px 7px', borderRadius: 20, fontWeight: 500 },
-  remind:     { display: 'flex', gap: 10, alignItems: 'flex-start', background: '#FFF8F0', border: '1px solid #F5E6D0', borderRadius: 10, padding: '12px 14px', marginBottom: '1.25rem' },
-  remindLine: { fontSize: 12, color: '#6B4C2A', lineHeight: 1.7 },
-  pipeGrid:   { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 },
-  stageCol:   { background: '#FFFFFF', border: '1px solid #E4DBD3', borderRadius: 10, overflow: 'hidden' },
-  stageHdr:   { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderLeft: '3px solid', background: '#FAF4EB', borderBottom: '1px solid #E4DBD3' },
-  showMore:   { width: '100%', fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', textAlign: 'center' },
-  search:     { padding: '7px 12px', fontSize: 13, border: '1px solid #E4DBD3', borderRadius: 8, background: '#FFFFFF', color: '#050500', outline: 'none', minWidth: 220 },
-  filterBtn:  { fontSize: 12, padding: '5px 12px', border: '1px solid #E4DBD3', borderRadius: 20, background: '#FFFFFF', cursor: 'pointer', color: '#888' },
-  filterActive:{ background: '#050500', color: '#FAF4EB', border: '1px solid #050500' },
-  detailPanel:{ width: 300, background: '#FFFFFF', border: '1px solid #E4DBD3', borderRadius: 10, padding: '1.25rem', overflow: 'auto', maxHeight: 'calc(100vh - 120px)' },
-  avatar:     { width: 34, height: 34, borderRadius: '50%', background: '#E4DBD3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: '#6B5C4C', flexShrink: 0 },
-  noteArea:   { width: '100%', minHeight: 80, padding: '8px 10px', border: '1px solid #E4DBD3', borderRadius: 8, fontSize: 12, background: '#FAF4EB', color: '#050500', resize: 'vertical', outline: 'none', fontFamily: 'inherit', marginTop: 6 },
-  stageSelect:{ width: '100%', fontSize: 11, padding: '3px 6px', border: '1px solid #E4DBD3', borderRadius: 6, background: '#FFFFFF', color: '#050500', cursor: 'pointer', marginTop: 6 },
-}
-
-// ── KİŞİ DETAY MODAL ─────────────────────────────────────────
 function ContactDetailModal({ email, onClose, onSave }) {
   const [info, setInfo] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -1191,7 +1410,6 @@ function ContactDetailModal({ email, onClose, onSave }) {
           setInfo(rows[0])
           setForm(rows[0])
         } else {
-          // DB'de yoksa boş form
           const blank = { id: '', name: '', email, company: '', title: '', linkedin: '', campaign: '', first_email: '', emails_sent: 0, last_email: '', reply_status: '', pipeline_stage: '', source: '', notes: '' }
           setInfo(null)
           setForm(blank)
@@ -1211,7 +1429,6 @@ function ContactDetailModal({ email, onClose, onSave }) {
     setInfo(form)
     setEditing(false)
     setSaving(false)
-    // Ana listeyi güncelle
     if (onSave) onSave(email, { name: form.name, company: form.company })
   }
 
@@ -1249,7 +1466,7 @@ function ContactDetailModal({ email, onClose, onSave }) {
                 )
               })}
             </div>
-            <button style={{ ...S.btn, marginTop: 12, width: '100%' }} onClick={() => setEditing(true)}>Düzenle</button>
+            <button style={{ width: '100%', padding: '7px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginTop: 12 }} onClick={() => setEditing(true)}>Düzenle</button>
           </>
         ) : (
           <>
@@ -1266,8 +1483,8 @@ function ContactDetailModal({ email, onClose, onSave }) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <button style={{ ...S.btn, ...S.btnPrimary, flex: 1 }} onClick={save} disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
-              <button style={{ ...S.btn, flex: 1 }} onClick={() => { setForm(info || {}); setEditing(false) }}>İptal</button>
+              <button style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: C.text, color: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }} onClick={save} disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              <button style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => { setForm(info || {}); setEditing(false) }}>İptal</button>
             </div>
           </>
         )}
@@ -1276,7 +1493,8 @@ function ContactDetailModal({ email, onClose, onSave }) {
   )
 }
 
-// ── ŞİRKET DETAY MODAL ──────────────────────────────────────
+// ═══════════════ ŞİRKET DETAY MODAL ═══════════════
+
 function CompanyDetailModal({ companyName, onClose }) {
   const [info, setInfo] = useState(null)
   const [contacts, setContacts] = useState([])
@@ -1343,7 +1561,7 @@ function CompanyDetailModal({ companyName, onClose }) {
                 )
               })}
             </div>
-            <button style={{ ...S.btn, marginTop: 12, width: '100%' }} onClick={() => setEditing(true)}>Düzenle</button>
+            <button style={{ width: '100%', padding: '7px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginTop: 12 }} onClick={() => setEditing(true)}>Düzenle</button>
           </>
         ) : (
           <>
@@ -1360,23 +1578,23 @@ function CompanyDetailModal({ companyName, onClose }) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <button style={{ ...S.btn, ...S.btnPrimary, flex: 1 }} onClick={save} disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
-              <button style={{ ...S.btn, flex: 1 }} onClick={() => { setForm(info || {}); setEditing(false) }}>İptal</button>
+              <button style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: C.text, color: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }} onClick={save} disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              <button style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => { setForm(info || {}); setEditing(false) }}>İptal</button>
             </div>
           </>
         )}
 
         {contacts.length > 0 && (
           <>
-            <div style={{ ...S.sTitle, marginTop: 20 }}>Kişiler ({contacts.length})</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 20, marginBottom: 10 }}>Kişiler ({contacts.length})</div>
             {contacts.map(c => (
-              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #F5EFE6', fontSize: 13 }}>
-                <div style={{ ...S.avatar, width: 26, height: 26, fontSize: 10 }}>{initials(c.name)}</div>
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: `1px solid ${C.bg2}`, fontSize: 13 }}>
+                <div style={{ width: 26, height: 26, borderRadius: '50%', background: C.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: '#6B5C4C', flexShrink: 0 }}>{initials(c.name)}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: '#888' }}>{c.title}</div>
+                  <div style={{ fontSize: 11, color: C.muted }}>{c.title}</div>
                 </div>
-                <div style={{ fontSize: 11, color: '#888' }}>{c.status}</div>
+                <div style={{ fontSize: 11, color: C.muted }}>{c.status}</div>
               </div>
             ))}
           </>
@@ -1386,21 +1604,23 @@ function CompanyDetailModal({ companyName, onClose }) {
   )
 }
 
-// ── MODAL STYLES ─────────────────────────────────────────────
+// ═══════════════ MODAL STYLES ═══════════════
+
 const MS = {
   overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: '#FFFFFF', borderRadius: 14, padding: '1.5rem', maxWidth: 480, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' },
+  modal: { background: C.white, borderRadius: 14, padding: '1.5rem', maxWidth: 480, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#888', padding: 4 },
+  closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: C.muted, padding: 4 },
   infoGrid: { display: 'flex', flexDirection: 'column', gap: 10 },
   field: {},
-  fieldLabel: { fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 },
-  fieldValue: { fontSize: 13, color: '#050500' },
-  input: { width: '100%', padding: '6px 10px', fontSize: 13, border: '1px solid #E4DBD3', borderRadius: 6, background: '#FAF4EB', color: '#050500', outline: 'none', boxSizing: 'border-box' },
-  textarea: { width: '100%', minHeight: 60, padding: '6px 10px', fontSize: 13, border: '1px solid #E4DBD3', borderRadius: 6, background: '#FAF4EB', color: '#050500', outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' },
+  fieldLabel: { fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 },
+  fieldValue: { fontSize: 13, color: C.text },
+  input: { width: '100%', padding: '6px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, outline: 'none', boxSizing: 'border-box' },
+  textarea: { width: '100%', minHeight: 60, padding: '6px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' },
 }
 
-// ── YARDIMCI ──────────────────────────────────────────────────
+// ═══════════════ YARDIMCI ═══════════════
+
 function extractName(snippet, toHeader) {
   const m = snippet.match(/Merhaba ([A-ZÇŞĞÜÖİ][a-zçşğüöı]+(?: [A-ZÇŞĞÜÖİ][a-zçşğüöı]+)?)/)
   if (m) return m[1]
