@@ -1231,6 +1231,82 @@ function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateCo
 
 // ═══════════════ PIPELINE ═══════════════
 
+function PipelineStageDetail({ stage, onClose, changeStage, onClickDetail, showLimit, setShowLimit }) {
+  const [expandedCompany, setExpandedCompany] = useState(null)
+
+  // Şirket bazlı gruplama
+  const companyGroups = useMemo(() => {
+    const map = {}
+    stage.contacts.forEach(c => {
+      const key = (c.company || c.domain).toLowerCase()
+      if (!map[key]) map[key] = { name: c.company || c.domain, contacts: [], lastContact: c.lastContact }
+      map[key].contacts.push(c)
+      if (new Date(c.lastContact) > new Date(map[key].lastContact)) map[key].lastContact = c.lastContact
+    })
+    return Object.values(map).sort((a, b) => new Date(b.lastContact) - new Date(a.lastContact))
+  }, [stage])
+
+  const shownCompanies = companyGroups.slice(0, showLimit)
+
+  return (
+    <Card>
+      <div style={{ padding: '14px 18px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 500 }}>{stage.name}</span>
+          <Badge color="gray">{stage.companyCount} Şirket · {stage.count} Kişi</Badge>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 16, color: C.muted, cursor: 'pointer', lineHeight: 1 }}>×</button>
+      </div>
+
+      {shownCompanies.map((co) => {
+        const key = co.name.toLowerCase()
+        const isOpen = expandedCompany === key
+        return (
+          <div key={key} style={{ borderBottom: `1px solid ${C.bg2}` }}>
+            {/* Şirket satırı */}
+            <div onClick={() => setExpandedCompany(isOpen ? null : key)} style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: isOpen ? C.bg2 : 'transparent' }}
+              onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = C.bg }}
+              onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = 'transparent' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 10, color: C.muted }}>{isOpen ? '▼' : '▶'}</span>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{co.name}</span>
+                <span style={{ fontSize: 11, color: C.muted }}>{co.contacts.length} kişi</span>
+              </div>
+              <span style={{ fontSize: 11, color: C.muted }}>{fmtDate(co.lastContact)}</span>
+            </div>
+
+            {/* Kişi listesi — açılır */}
+            {isOpen && (
+              <div style={{ background: C.bg, borderTop: `1px solid ${C.border}` }}>
+                {co.contacts.map(c => (
+                  <div key={c.email} style={{ display: 'flex', alignItems: 'center', padding: '8px 18px 8px 44px', borderBottom: `1px solid ${C.bg2}`, gap: 12 }}>
+                    <div style={{ flex: '0 0 180px', minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 500, color: '#3B82F6', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => onClickDetail(c.email)}>{c.name}</div>
+                    </div>
+                    <div style={{ flex: 1, fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</div>
+                    <div style={{ flex: '0 0 80px', fontSize: 11, color: C.muted }}>{fmtDate(c.lastContact)}</div>
+                    <div style={{ flex: '0 0 140px' }}>
+                      <select style={{ fontSize: 11, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} value={c.stage} onChange={e => changeStage(c.email, e.target.value)}>
+                        {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {companyGroups.length > showLimit && (
+        <div onClick={() => setShowLimit(prev => prev + 20)} style={{ padding: '10px 18px', fontSize: 11.5, color: '#3B82F6', borderTop: `1px solid ${C.bg2}`, cursor: 'pointer', fontWeight: 500, textAlign: 'center' }}>
+          +{companyGroups.length - showLimit} Şirket Daha Yükle
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContactInfo }) {
   const [channel, setChannel] = useState('Email')
   const [period, setPeriod] = useState('Tümü')
@@ -1292,46 +1368,9 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
         })}
       </div>
 
-      {/* Seçilen Stage'in Kişileri */}
+      {/* Seçilen Stage — Şirket bazlı listeleme */}
       {activeStage && activeStage.contacts.length > 0 && (
-        <Card>
-          <div style={{ padding: '14px 18px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 500 }}>{activeStage.name}</span>
-              <Badge color="gray">{activeStage.companyCount} Şirket · {activeStage.count} Kişi</Badge>
-            </div>
-            <button onClick={() => setSelectedStage(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: C.muted, cursor: 'pointer', lineHeight: 1 }}>×</button>
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                {['Ad Soyad', 'Şirket', 'E-Posta', 'Son İletişim', 'Stage'].map(h => (
-                  <th key={h} style={{ padding: '10px 18px', textAlign: 'left', fontSize: 11, fontWeight: 500, color: C.muted }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activeStage.contacts.slice(0, showLimit).map((c) => (
-                <tr key={c.email} style={{ borderBottom: `1px solid ${C.bg2}` }}>
-                  <td style={{ padding: '10px 18px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', color: '#3B82F6' }} onClick={() => setDetailEmail(c.email)}>{c.name}</td>
-                  <td style={{ padding: '10px 18px', fontSize: 12, color: C.muted }}>{c.company}</td>
-                  <td style={{ padding: '10px 18px', fontSize: 11.5, color: C.muted }}>{c.email}</td>
-                  <td style={{ padding: '10px 18px', fontSize: 11.5, color: C.muted }}>{fmtDate(c.lastContact)}</td>
-                  <td style={{ padding: '10px 18px' }} onClick={e => e.stopPropagation()}>
-                    <select style={{ fontSize: 11, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} value={c.stage} onChange={e => changeStage(c.email, e.target.value)}>
-                      {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
-                    </select>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {activeStage.count > showLimit && (
-            <div onClick={() => setShowLimit(prev => prev + 30)} style={{ padding: '10px 18px', fontSize: 11.5, color: '#3B82F6', borderTop: `1px solid ${C.bg2}`, cursor: 'pointer', fontWeight: 500, textAlign: 'center' }}>
-              +{activeStage.count - showLimit} Kişi Daha Yükle
-            </div>
-          )}
-        </Card>
+        <PipelineStageDetail stage={activeStage} onClose={() => setSelectedStage(null)} changeStage={changeStage} onClickDetail={setDetailEmail} showLimit={showLimit} setShowLimit={setShowLimit} />
       )}
 
       {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} onSave={updateContactInfo} />}
