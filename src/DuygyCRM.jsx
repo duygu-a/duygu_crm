@@ -685,7 +685,13 @@ export default function DuygyCRM({ token, onLogout }) {
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────
-function Dashboard({ stats, weeklyC, overdue }) {
+function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
+  const { sortKey, sortDir, toggle, sortFn } = useSortable('days', 'desc')
+  const overdueGetters = {
+    name: c => c.name, company: c => c.company, stage: c => c.stage,
+    date: c => new Date(c.lastContact), days: c => daysSince(c.lastContact),
+  }
+  const overdue = sortFn(rawOverdue, overdueGetters)
   const dow = new Date().getDay()
   return (
     <div style={S.page}>
@@ -740,7 +746,11 @@ function Dashboard({ stats, weeklyC, overdue }) {
           </div>
           <div style={S.tableWrap}>
             <table style={S.table}>
-              <thead><tr>{['Kişi','Şirket','Stage','Son İletişim','Gün'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+              <thead><tr>
+                {[['name','Kişi'],['company','Şirket'],['stage','Stage'],['date','Son İletişim'],['days','Gün']].map(([k,l]) =>
+                  <SortTh key={k} label={l} sortKey={k} currentKey={sortKey} currentDir={sortDir} onToggle={toggle} />
+                )}
+              </tr></thead>
               <tbody>
                 {overdue.slice(0, 8).map(c => (
                   <tr key={c.email} style={S.tr}>
@@ -858,9 +868,15 @@ function DailySection({ title, contacts, color, urgent }) {
 // ── COMPANIES ─────────────────────────────────────────────────
 function Companies({ companies, selCompany, setSelCompany, notes, setNotes, changeStage }) {
   const [search, setSearch] = useState('')
-  const list = Object.values(companies).filter(c =>
+  const { sortKey, sortDir, toggle, sortFn } = useSortable('date', 'desc')
+  const compGetters = {
+    company: c => c.name, domain: c => c.domain, stage: c => c.stage,
+    count: c => c.contacts.length, date: c => new Date(c.lastContact),
+  }
+  const filtered = Object.values(companies).filter(c =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.domain.includes(search.toLowerCase())
   )
+  const list = sortFn(filtered, compGetters)
   const sel = selCompany ? companies[selCompany] : null
 
   return (
@@ -869,7 +885,11 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
         <input style={{ ...S.search, marginBottom: '1rem', width: '100%' }} placeholder="Şirket ara..." value={search} onChange={e => setSearch(e.target.value)} />
         <div style={S.tableWrap}>
           <table style={S.table}>
-            <thead><tr>{['Şirket','Domain','Stage','Kişi','Son İletişim'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+            <thead><tr>
+              {[['company','Şirket'],['domain','Domain'],['stage','Stage'],['count','Kişi'],['date','Son İletişim']].map(([k,l]) =>
+                <SortTh key={k} label={l} sortKey={k} currentKey={sortKey} currentDir={sortDir} onToggle={toggle} />
+              )}
+            </tr></thead>
             <tbody>
               {list.map(c => (
                 <tr key={c.domain} style={{ ...S.tr, cursor: 'pointer', background: selCompany === c.domain ? '#F5EFE6' : '' }} onClick={() => setSelCompany(c.domain)}>
@@ -994,6 +1014,46 @@ function Performans({ contacts, stats }) {
         ))}
       </div>
     </div>
+  )
+}
+
+// ── SORTABLE TABLE HEADER ─────────────────────────────────────
+function useSortable(defaultKey = null, defaultDir = 'asc') {
+  const [sortKey, setSortKey] = useState(defaultKey)
+  const [sortDir, setSortDir] = useState(defaultDir)
+  const toggle = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const sortFn = (data, getters) => {
+    if (!sortKey || !getters[sortKey]) return data
+    const getter = getters[sortKey]
+    return [...data].sort((a, b) => {
+      let va = getter(a), vb = getter(b)
+      if (va == null) va = ''
+      if (vb == null) vb = ''
+      if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va
+      if (va instanceof Date && vb instanceof Date) return sortDir === 'asc' ? va - vb : vb - va
+      va = String(va).toLowerCase(); vb = String(vb).toLowerCase()
+      if (va < vb) return sortDir === 'asc' ? -1 : 1
+      if (va > vb) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }
+  return { sortKey, sortDir, toggle, sortFn }
+}
+
+function SortTh({ label, sortKey, currentKey, currentDir, onToggle }) {
+  const active = currentKey === sortKey
+  return (
+    <th
+      style={{ ...S.th, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+      onClick={() => onToggle(sortKey)}
+    >
+      {label} <span style={{ fontSize: 10, color: active ? '#050500' : '#ccc', marginLeft: 2 }}>
+        {active ? (currentDir === 'asc' ? '▲' : '▼') : '⇅'}
+      </span>
+    </th>
   )
 }
 
