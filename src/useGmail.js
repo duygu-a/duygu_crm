@@ -49,8 +49,14 @@ export function clearToken() {
 export async function startLogin() {
   const verifier   = generateVerifier()
   const challenge  = await generateChallenge(verifier)
-  localStorage.setItem(VERIFIER_KEY, verifier)
-  console.log('Verifier saved. Origin:', window.location.origin, 'Redirect URI:', REDIRECT_URI)
+
+  // Her iki storage'a da kaydet — fallback mekanizması
+  try { localStorage.setItem(VERIFIER_KEY, verifier) } catch (e) { console.warn('localStorage yazılamadı:', e) }
+  try { sessionStorage.setItem(VERIFIER_KEY, verifier) } catch (e) { console.warn('sessionStorage yazılamadı:', e) }
+
+  // Doğrulama
+  const check = localStorage.getItem(VERIFIER_KEY)
+  console.log('Verifier saved:', !!check, 'Origin:', window.location.origin, 'Redirect URI:', REDIRECT_URI)
 
   const params = new URLSearchParams({
     client_id:             CLIENT_ID,
@@ -70,16 +76,21 @@ export async function startLogin() {
 // Google desktop app type gerektirir veya backend proxy gerekir.
 // Bu proje için Vercel serverless function kullanıyoruz.
 export async function handleCallback(code) {
-  const verifier = localStorage.getItem(VERIFIER_KEY)
+  // localStorage ve sessionStorage'dan dene
+  const verifier = localStorage.getItem(VERIFIER_KEY) || sessionStorage.getItem(VERIFIER_KEY)
+
+  console.log('handleCallback debug:', {
+    localStorage: !!localStorage.getItem(VERIFIER_KEY),
+    sessionStorage: !!sessionStorage.getItem(VERIFIER_KEY),
+    allLocalKeys: Object.keys(localStorage),
+    allSessionKeys: Object.keys(sessionStorage),
+    origin: window.location.origin,
+  })
+
   if (!verifier) {
-    // Debug: localStorage'daki tüm key'leri kontrol et
-    const keys = Object.keys(localStorage)
-    console.error('localStorage keys:', keys)
-    console.error('Current origin:', window.location.origin)
     throw new Error(
-      'Code verifier bulunamadı. ' +
-      'Login başlatılan origin ile callback origin farklı olabilir. ' +
-      'Origin: ' + window.location.origin
+      'Code verifier bulunamadı. Tarayıcınız localStorage\'ı engelliyor olabilir. ' +
+      'Gizli sekme kullanıyorsanız normal sekmeye geçin.'
     )
   }
 
@@ -92,6 +103,7 @@ export async function handleCallback(code) {
   const data = await res.json()
   saveToken(data.access_token, data.expires_in)
   localStorage.removeItem(VERIFIER_KEY)
+  sessionStorage.removeItem(VERIFIER_KEY)
   return data.access_token
 }
 
