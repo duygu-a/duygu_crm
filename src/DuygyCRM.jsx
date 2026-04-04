@@ -816,7 +816,7 @@ function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, ex
     <div style={S.page}>
       <div style={{ display: 'flex', gap: 8, marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <input style={S.search} placeholder="Kişi, şirket veya email ara..." value={searchQ} onChange={e => setSearchQ(e.target.value)} />
-        {[['all','Pipeline'],['outcome','Outcome'],['b2c','B2C'],['smartlead','Smartlead']].map(([f, l]) => (
+        {[['all','Pipeline'],['b2c','B2C'],['smartlead','Smartlead']].map(([f, l]) => (
           <button key={f} style={{ ...S.filterBtn, ...(pipeFilter === f ? S.filterActive : {}) }} onClick={() => setPipeFilter(f)}>{l}</button>
         ))}
       </div>
