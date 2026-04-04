@@ -18,7 +18,7 @@ const ALL_STAGES = [
   'reached_out','follow_up_1','follow_up_2','needs_reply',
   'processing_meeting','meeting_scheduled','meeting_held','reschedule',
   'no_answer','not_interested','bounce','wrong_person',
-  'out_of_office','competitor','b2c_campaign','smartlead',
+  'out_of_office','competitor',
 ]
 
 const STAGE_META = {
@@ -36,20 +36,9 @@ const STAGE_META = {
   wrong_person:       { label: 'Wrong Person',         color: '#991B1B' },
   out_of_office:      { label: 'Out Of Office',        color: '#6366F1' },
   competitor:         { label: 'Competitor',           color: '#DB2777' },
-  b2c_campaign:       { label: 'B2C Campaign',         color: '#0EA5E9' },
-  smartlead:          { label: 'Smartlead',            color: '#14B8A6' },
 }
 
-const PIPELINE_STAGES = [
-  'reached_out','follow_up_1','follow_up_2','needs_reply',
-  'processing_meeting','meeting_scheduled','meeting_held','reschedule',
-  'no_answer','not_interested','bounce','wrong_person',
-  'out_of_office','competitor',
-]
-const OUTCOME_STAGES = [
-  'no_answer','not_interested','bounce','wrong_person',
-  'out_of_office','competitor',
-]
+const PIPELINE_STAGES = ALL_STAGES
 
 const KPI = { meetings: 156, pipeline: 3100000 }
 const TABS = ['Dashboard', 'Pipeline', 'Daily', 'Companies', 'Performans']
@@ -144,12 +133,6 @@ const classifyContact = (c) => {
       s.includes('ne zaman uygun') || s.includes('saat kaçta') ||
       s.includes('takvim')))
     return 'processing_meeting'
-
-  // B2C Campaign
-  if (sub.includes('cambly invoices') || sub.includes('invoices —') ||
-      sub.includes('english training at') || sub.includes('english development at') ||
-      sub.includes('english benefit at'))
-    return 'b2c_campaign'
 
   // Yanıt geldiyse → Needs Reply (sen henüz yanıtlamamışsan)
   if (hasReply && hasSent && new Date(c.lastReceived) > new Date(c.lastSent))
@@ -815,24 +798,14 @@ function Dashboard({ stats, weeklyC, overdue: rawOverdue, updateContactInfo }) {
 
 // ── PIPELINE ──────────────────────────────────────────────────
 function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, expStage, setExpStage, changeStage, updateContactInfo }) {
-  const stageMap = {
-    all: PIPELINE_STAGES,
-    outcome: OUTCOME_STAGES,
-    b2c: ['b2c_campaign'],
-    smartlead: ['smartlead'],
-  }
-  const stages = stageMap[pipeFilter] || PIPELINE_STAGES
   const [detailEmail, setDetailEmail] = useState(null)
   return (
     <div style={S.page}>
       <div style={{ display: 'flex', gap: 8, marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <input style={S.search} placeholder="Kişi, şirket veya email ara..." value={searchQ} onChange={e => setSearchQ(e.target.value)} />
-        {[['all','Pipeline'],['b2c','B2C'],['smartlead','Smartlead']].map(([f, l]) => (
-          <button key={f} style={{ ...S.filterBtn, ...(pipeFilter === f ? S.filterActive : {}) }} onClick={() => setPipeFilter(f)}>{l}</button>
-        ))}
       </div>
       <div style={S.pipeGrid}>
-        {stages.map(stage => {
+        {PIPELINE_STAGES.map(stage => {
           const sc   = contacts.filter(c => c.stage === stage)
           const meta = STAGE_META[stage]
           const exp  = expStage === stage
