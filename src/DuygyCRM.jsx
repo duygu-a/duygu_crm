@@ -286,6 +286,25 @@ const loadCache = () => {
 const saveCache = data =>
   localStorage.setItem(CACHE_KEY, JSON.stringify({ ...data, version: CACHE_VER, savedAt: Date.now() }))
 
+// ── İŞ GÜNÜ HESAPLAMA ────────────────────────────────────────
+function businessDaysSince(dateStr) {
+  if (!dateStr) return 999
+  const start = new Date(dateStr)
+  const now = new Date()
+  if (start > now) return 0
+  let count = 0
+  const d = new Date(start)
+  d.setHours(0,0,0,0)
+  const today = new Date(now)
+  today.setHours(0,0,0,0)
+  while (d < today) {
+    d.setDate(d.getDate() + 1)
+    const dow = d.getDay()
+    if (dow !== 0 && dow !== 6) count++ // Pzt-Cuma
+  }
+  return count
+}
+
 // ── TARİH FİLTRE YARDIMCISI ──────────────────────────────────
 function getDateRange(period, startDate, endDate) {
   const now = new Date()
@@ -398,11 +417,14 @@ function DateFilter({ period, onPeriodChange, startDate, endDate, onStartChange,
   )
 }
 
-function FUCard({ title, items, total, color, urgent }) {
+function FUCard({ title, subtitle, items, total, color, urgent }) {
   return (
     <Card>
       <div style={{ padding: '12px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
-        <span style={{ fontSize: 12.5, fontWeight: 500 }}>{title}</span>
+        <div>
+          <span style={{ fontSize: 12.5, fontWeight: 500 }}>{title}</span>
+          {subtitle && <span style={{ fontSize: 10, color: C.muted, marginLeft: 6 }}>{subtitle}</span>}
+        </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {urgent && <Badge color="red">Acil</Badge>}
           <Badge color={color}>{total}</Badge>
@@ -1300,12 +1322,77 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
 // ═══════════════ DAILY ═══════════════
 
 function DailyPage({ contacts, overdue }) {
-  const [period, setPeriod] = useState('Bugün')
+  const [period, setPeriod] = useState('Tümü')
   const [startDate, setStartDate] = useState('2026-03-01')
   const [endDate, setEndDate] = useState('2026-04-04')
 
-  // Şirket bazlı gruplama
-  const groupByCompany = (ctcts) => {
+  // Aktif outbound kişileri (yanıt almamış, meeting/not interested/bounce/spam olmayan)
+  const excludedStages = ['meeting_held', 'meeting_scheduled', 'not_interested', 'bounce', 'wrong_person', 'competitor', 'spam', 'out_of_office']
+
+  // Şirket bazlı gruplama — iş günü hesaplı
+  const dailyData = useMemo(() => {
+    const activeContacts = contacts.filter(c =>
+      c.sentCount > 0 && !c.receivedCount && !excludedStages.includes(c.stage)
+    )
+
+    // Şirket bazlı grupla
+    const companyMap = {}
+    activeContacts.forEach(c => {
+      const key = (c.company || c.domain).toLowerCase()
+      if (!companyMap[key]) {
+        companyMap[key] = { company: c.company || c.domain, contacts: [], firstSent: c.lastSent, lastSent: c.lastSent }
+      }
+      companyMap[key].contacts.push(c)
+      // Şirketteki en erken ve en geç gönderim tarihini bul
+      if (c.lastSent && new Date(c.lastSent) < new Date(companyMap[key].firstSent)) companyMap[key].firstSent = c.lastSent
+      if (c.lastSent && new Date(c.lastSent) > new Date(companyMap[key].lastSent)) companyMap[key].lastSent = c.lastSent
+    })
+
+    const fu1 = [] // 2+ iş günü geçti, henüz 1 mail gönderilmiş
+    const fu2 = [] // 1.FU gönderilmiş, 2+ iş günü geçti
+    const overdue = [] // 4+ iş günü geçti ilk mailden
+
+    Object.values(companyMap).forEach(co => {
+      const maxSent = Math.max(...co.contacts.map(c => c.sentCount || 0))
+      const bdSinceFirst = businessDaysSince(co.firstSent)
+      const bdSinceLast = businessDaysSince(co.lastSent)
+
+      const item = {
+        company: co.company,
+        count: co.contacts.length,
+        date: fmtDate(co.lastSent),
+        bdSinceFirst,
+        bdSinceLast,
+      }
+
+      // 4+ iş günü ilk mailden → Gecikmiş
+      if (bdSinceFirst >= 4) {
+        overdue.push(item)
+      }
+      // 2+ iş günü son gönderimden, 2+ mail gönderilmiş → 2. FU Gerekli
+      else if (maxSent >= 2 && bdSinceLast >= 2) {
+        fu2.push(item)
+      }
+      // 2+ iş günü son gönderimden, 1 mail gönderilmiş → 1. FU Gerekli
+      else if (maxSent === 1 && bdSinceLast >= 2) {
+        fu1.push(item)
+      }
+    })
+
+    // En eski en üstte
+    fu1.sort((a, b) => b.bdSinceLast - a.bdSinceLast)
+    fu2.sort((a, b) => b.bdSinceLast - a.bdSinceLast)
+    overdue.sort((a, b) => b.bdSinceFirst - a.bdSinceFirst)
+
+    return { fu1, fu2, overdue }
+  }, [contacts])
+
+  // Needs Reply ve Processing ayrı
+  const needsReply = contacts.filter(c => c.stage === 'needs_reply')
+  const processing = contacts.filter(c => c.stage === 'processing_meeting')
+  const interested = contacts.filter(c => c.stage === 'interested')
+
+  const groupByCompanySimple = (ctcts) => {
     const map = {}
     ctcts.forEach(c => {
       const key = c.company || c.domain
@@ -1318,23 +1405,8 @@ function DailyPage({ contacts, overdue }) {
     }))
   }
 
-  const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
-  const filteredOverdue = useMemo(() => filterByDate(overdue, period, startDate, endDate), [overdue, period, startDate, endDate])
-
-  const fu1Contacts = fc.filter(c => c.stage === 'follow_up_1')
-  const fu2Contacts = fc.filter(c => c.stage === 'follow_up_2')
-  const needsReply = fc.filter(c => c.stage === 'needs_reply')
-  const processing = fc.filter(c => c.stage === 'processing_meeting')
-
-  const fu1 = groupByCompany(fu1Contacts)
-  const fu2 = groupByCompany(fu2Contacts)
-  const overdueGrouped = groupByCompany(filteredOverdue)
-  const needsReplyGrouped = groupByCompany(needsReply)
-
   return (
     <>
-      <DateFilter period={period} onPeriodChange={setPeriod} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
-
       {/* Unutma */}
       <Card style={{ marginBottom: 16 }}>
         <div style={{ padding: '14px 16px' }}>
@@ -1357,21 +1429,28 @@ function DailyPage({ contacts, overdue }) {
       {/* Needs Reply */}
       {needsReply.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <FUCard title="Yanıt Bekliyor" items={needsReplyGrouped} total={needsReply.length} color="amber" urgent />
+          <FUCard title="Yanıt Bekliyor" items={groupByCompanySimple(needsReply)} total={needsReply.length} color="amber" urgent />
         </div>
       )}
 
-      {/* Follow Up Cards */}
+      {/* Interested */}
+      {interested.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <FUCard title="Interested — Takip Et" items={groupByCompanySimple(interested)} total={interested.length} color="blue" />
+        </div>
+      )}
+
+      {/* Follow Up Cards — iş günü bazlı */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-        <FUCard title="1. Follow Up Gerekli" items={fu1} total={fu1Contacts.length} color="blue" />
-        <FUCard title="2. Follow Up Gerekli" items={fu2} total={fu2Contacts.length} color="amber" />
-        <FUCard title="Gecikmiş Follow Up" items={overdueGrouped} total={overdue.length} color="red" urgent />
+        <FUCard title="1. Follow Up Gerekli" items={dailyData.fu1} total={dailyData.fu1.length} color="blue" subtitle="2+ iş günü geçmiş" />
+        <FUCard title="2. Follow Up Gerekli" items={dailyData.fu2} total={dailyData.fu2.length} color="amber" subtitle="1.FU sonrası 2+ iş günü" />
+        <FUCard title="Gecikmiş Follow Up" items={dailyData.overdue} total={dailyData.overdue.length} color="red" urgent subtitle="4+ iş günü geçmiş" />
       </div>
 
       {/* Processing - Meeting */}
       {processing.length > 0 && (
         <div style={{ marginTop: 14 }}>
-          <FUCard title="Processing - Meeting" items={groupByCompany(processing)} total={processing.length} color="blue" />
+          <FUCard title="Processing - Meeting" items={groupByCompanySimple(processing)} total={processing.length} color="green" />
         </div>
       )}
     </>
