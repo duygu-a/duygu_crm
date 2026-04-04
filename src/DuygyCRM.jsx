@@ -15,9 +15,10 @@ const CACHE_VER  = 5
 
 const ALL_STAGES = [
   'reached_out','follow_up_1','follow_up_2','needs_reply',
+  'interested','referral_received',
   'processing_meeting','meeting_scheduled','meeting_held','reschedule',
   'no_answer','not_interested','bounce','wrong_person',
-  'out_of_office','competitor',
+  'out_of_office','competitor','spam',
 ]
 
 const STAGE_META = {
@@ -25,6 +26,8 @@ const STAGE_META = {
   follow_up_1:        { label: '1. Follow Up',         color: '#8B5CF6' },
   follow_up_2:        { label: '2. Follow Up',         color: '#7C3AED' },
   needs_reply:        { label: 'Needs Reply',          color: '#F59E0B' },
+  interested:         { label: 'Interested',           color: '#0EA5E9' },
+  referral_received:  { label: 'Referral Received',    color: '#14B8A6' },
   processing_meeting: { label: 'Processing - Meeting', color: '#3B82F6' },
   meeting_scheduled:  { label: 'Meeting Scheduled',    color: '#10B981' },
   meeting_held:       { label: 'Meeting Held',         color: '#059669' },
@@ -35,6 +38,23 @@ const STAGE_META = {
   wrong_person:       { label: 'Wrong Person',         color: '#991B1B' },
   out_of_office:      { label: 'Out Of Office',        color: '#6366F1' },
   competitor:         { label: 'Competitor',           color: '#DB2777' },
+  spam:               { label: 'Spam / Reklam',       color: '#78716C' },
+}
+
+// Excel stage → sistem stage eşleştirmesi
+const EXCEL_STAGE_MAP = {
+  'no answer':                       'no_answer',
+  'meeting held':                    'meeting_held',
+  'meeting scheduled':               'meeting_scheduled',
+  'competitor':                      'competitor',
+  'ooo':                             'out_of_office',
+  'interested':                      'interested',
+  'referral received':               'referral_received',
+  'not interested':                  'not_interested',
+  'not interested (existing vendor)':'not_interested',
+  'not interested (not on agenda)':  'not_interested',
+  'not interested (wants f2f)':      'not_interested',
+  'not interested (not in yearly plan)': 'not_interested',
 }
 
 const PIPELINE_STAGES = ALL_STAGES
@@ -536,11 +556,18 @@ export default function DuygyCRM({ token, onLogout }) {
           let fixed = 0
           dbC.forEach(c => {
             const info = infoMap[c.email]
-            if (info && info.company && c.company !== info.company) {
-              c.company = info.company
+            if (info) {
+              if (info.company && c.company !== info.company) {
+                c.company = info.company
+                fixed++
+              }
               if (info.name) c.name = info.name
-              fixed++
-            } else if (!info && domainToCompany[c.domain] && c.company !== domainToCompany[c.domain]) {
+              // Excel pipeline_stage → sistem stage eşleştirmesi
+              if (info.pipeline_stage) {
+                const mapped = EXCEL_STAGE_MAP[info.pipeline_stage.toLowerCase()]
+                if (mapped && c.stage !== mapped) { c.stage = mapped; fixed++ }
+              }
+            } else if (domainToCompany[c.domain] && c.company !== domainToCompany[c.domain]) {
               c.company = domainToCompany[c.domain]
               fixed++
             }
@@ -796,6 +823,11 @@ export default function DuygyCRM({ token, onLogout }) {
             // Tam email eşleşmesi — en güvenilir
             if (info.name) c.name = info.name
             if (info.company) c.company = info.company
+            // Excel'deki pipeline_stage varsa ve eşleşiyorsa kullan
+            if (info.pipeline_stage) {
+              const mapped = EXCEL_STAGE_MAP[info.pipeline_stage.toLowerCase()]
+              if (mapped) c.stage = mapped
+            }
           } else if (domainToCompany[c.domain]) {
             // Email eşleşmesi yok ama domain eşleşmesi var
             c.company = domainToCompany[c.domain]
