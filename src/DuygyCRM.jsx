@@ -952,7 +952,7 @@ export default function DuygyCRM({ token, onLogout }) {
       )}
 
       <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 28px' }}>
-        {tab === 'Dashboard'  && <DashboardPage contacts={contacts} stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} onNavigate={setTab} />}
+        {tab === 'Dashboard'  && <DashboardPage contacts={contacts} stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} changeStage={changeStage} onNavigate={setTab} />}
         {tab === 'Pipeline'   && <PipelinePage contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
         {tab === 'Daily'      && <DailyPage contacts={contacts} overdue={overdue} />}
         {tab === 'Companies'  && <CompaniesPage companies={companies} selCompany={selCompany} setSelCompany={setSelCompany} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
@@ -964,7 +964,7 @@ export default function DuygyCRM({ token, onLogout }) {
 
 // ═══════════════ DASHBOARD ═══════════════
 
-function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateContactInfo, onNavigate }) {
+function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateContactInfo, changeStage, onNavigate }) {
   const [tasks, setTasks] = useState([
     { id: 1, t: 'Gmail tara & etiketle', d: false },
     { id: 2, t: 'Personalized Outbound', d: false },
@@ -1103,7 +1103,11 @@ function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateCo
                     <div style={{ fontSize: 11, color: C.muted }}>{c.email}</div>
                   </td>
                   <td style={{ padding: '10px 14px', fontSize: 12, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setDetailCompany(c.company)}>{c.company}</td>
-                  <td style={{ padding: '10px 14px' }}><StagePill stage={c.stage} /></td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <select style={{ fontSize: 11, padding: '3px 6px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.text, cursor: 'pointer' }} value={c.stage} onChange={e => changeStage(c.email, e.target.value)}>
+                      {ALL_STAGES.map(s => <option key={s} value={s}>{STAGE_META[s].label}</option>)}
+                    </select>
+                  </td>
                   <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>{fmtDate(c.lastContact)}</td>
                   <td style={{ padding: '10px 14px', color: '#EF4444', fontWeight: 500, fontSize: 12 }}>{daysSince(c.lastContact)}g</td>
                 </tr>
@@ -1141,11 +1145,13 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
   // Tarih filtresi
   const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
 
-  // Stage'leri grupla
+  // Stage'leri grupla — şirket bazlı sayım
   const stageGroups = PIPELINE_STAGES.map(stage => {
     const sc = fc.filter(c => c.stage === stage)
     const meta = STAGE_META[stage]
-    return { key: stage, name: meta.label, count: sc.length, contacts: sc, color: meta.color }
+    // Şirket bazlı unique sayım
+    const companySet = new Set(sc.map(c => (c.company || c.domain).toLowerCase()))
+    return { key: stage, name: meta.label, count: sc.length, companyCount: companySet.size, contacts: sc, color: meta.color }
   })
 
   const activeStage = selectedStage !== null ? stageGroups.find(s => s.key === selectedStage) : null
@@ -1179,7 +1185,10 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
                 <div style={{ width: 4, height: 20, borderRadius: 2, background: s.color }} />
                 <span style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</span>
               </div>
-              <span style={{ fontSize: 22, fontWeight: 600, color: s.count > 0 ? C.text : C.muted }}>{s.count}</span>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 22, fontWeight: 600, color: s.companyCount > 0 ? C.text : C.muted }}>{s.companyCount}</div>
+                <div style={{ fontSize: 10, color: C.muted }}>{s.count} kişi</div>
+              </div>
             </div>
           )
         })}
@@ -1191,7 +1200,7 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
           <div style={{ padding: '14px 18px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 13.5, fontWeight: 500 }}>{activeStage.name}</span>
-              <Badge color="gray">{activeStage.count} Kişi</Badge>
+              <Badge color="gray">{activeStage.companyCount} Şirket · {activeStage.count} Kişi</Badge>
             </div>
             <button onClick={() => setSelectedStage(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: C.muted, cursor: 'pointer', lineHeight: 1 }}>×</button>
           </div>
