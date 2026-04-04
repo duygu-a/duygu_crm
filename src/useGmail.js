@@ -102,3 +102,37 @@ export async function gmailModifyThread(token, threadId, addLabelIds = [], remov
 export async function gmailGetProfile(token) {
   return gmailFetch('profile', token)
 }
+
+// Label oluştur (yoksa)
+export async function gmailCreateLabel(token, name) {
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    }),
+  })
+  if (!res.ok) throw new Error(`Label oluşturulamadı: ${name}`)
+  return res.json()
+}
+
+// Label'ları isme göre eşleştir, yoksa oluştur
+export async function ensureCrmLabels(token, stageNames) {
+  const existing = await gmailListLabels(token)
+  const userLabels = existing.labels.filter(l => l.type === 'user')
+  const nameToId = {}
+
+  for (const stageName of stageNames) {
+    const crmName = `CRM/${stageName}`
+    const found = userLabels.find(l => l.name === crmName)
+    if (found) {
+      nameToId[stageName] = found.id
+    } else {
+      const created = await gmailCreateLabel(token, crmName)
+      nameToId[stageName] = created.id
+    }
+  }
+  return nameToId
+}

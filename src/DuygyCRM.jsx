@@ -5,6 +5,7 @@ import {
   gmailListLabels,
   gmailModifyThread,
   gmailGetProfile,
+  ensureCrmLabels,
 } from './useGmail'
 
 // ── SABİTLER ──────────────────────────────────────────────────
@@ -12,47 +13,13 @@ const MY_EMAIL   = 'duygu@cambly.com'
 const CACHE_KEY  = 'duygu_crm_v5_data'
 const CACHE_VER  = 5
 
-const LABEL_IDS = {
-  REACHED_OUT:        'Label_1',
-  FOLLOW_UP_1:        'Label_2',
-  FOLLOW_UP_2:        'Label_3',
-  NEEDS_REPLY:        'Label_4',
-  PROCESSING_MEETING: 'Label_5',
-  MEETING_SCHEDULED:  'Label_6',
-  MEETING_HELD:       'Label_7',
-  RESCHEDULE:         'Label_8',
-  NO_ANSWER:          'Label_9',
-  NOT_INTERESTED:     'Label_10',
-  BOUNCE:             'Label_11',
-  WRONG_PERSON:       'Label_12',
-  OUT_OF_OFFICE:      'Label_13',
-  COMPETITOR:         'Label_14',
-  B2C_CAMPAIGN:       'Label_15',
-  SMARTLEAD:          'Label_16',
-}
-
-const LABEL_TO_STAGE = {
-  Label_1:  'reached_out',
-  Label_2:  'follow_up_1',
-  Label_3:  'follow_up_2',
-  Label_4:  'needs_reply',
-  Label_5:  'processing_meeting',
-  Label_6:  'meeting_scheduled',
-  Label_7:  'meeting_held',
-  Label_8:  'reschedule',
-  Label_9:  'no_answer',
-  Label_10: 'not_interested',
-  Label_11: 'bounce',
-  Label_12: 'wrong_person',
-  Label_13: 'out_of_office',
-  Label_14: 'competitor',
-  Label_15: 'b2c_campaign',
-  Label_16: 'smartlead',
-}
-
-const STAGE_TO_LABEL = Object.fromEntries(
-  Object.entries(LABEL_TO_STAGE).map(([k, v]) => [v, k])
-)
+// Label ID'leri dinamik olarak Gmail'den çekilir (CRM/stage_name formatında)
+const ALL_STAGES = [
+  'reached_out','follow_up_1','follow_up_2','needs_reply',
+  'processing_meeting','meeting_scheduled','meeting_held','reschedule',
+  'no_answer','not_interested','bounce','wrong_person',
+  'out_of_office','competitor','b2c_campaign','smartlead',
+]
 
 const STAGE_META = {
   reached_out:        { label: 'Reached Out',         color: '#6B7280' },
@@ -112,24 +79,25 @@ const fmtDate = d => {
 const initials = name =>
   (name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
 
-const stageFromLabels = labelIds => {
-  if (!labelIds) return null
+const stageFromLabels = (labelIds, labelToStage) => {
+  if (!labelIds || !labelToStage) return null
   for (const id of labelIds) {
-    if (LABEL_TO_STAGE[id]) return LABEL_TO_STAGE[id]
+    if (labelToStage[id]) return labelToStage[id]
   }
   return null
 }
 
-// Label yoksa snippet + subject + cc'ye bakarak classify et
-const classifyMessage = (snippet, subject, from, to, cc, labels, date) => {
-  const s = (snippet || '').toLowerCase()
-  const sub = (subject || '').toLowerCase()
-  const f = (from || '').toLowerCase()
-  const c = (cc || '').toLowerCase()
-  const allLabels = labels || []
+// İki yönlü iletişime göre classify et
+const classifyContact = (c) => {
+  const s = (c.snippet || '').toLowerCase()
+  const sub = (c.subject || '').toLowerCase()
+  const hasSent = c.sentCount > 0
+  const hasReply = c.receivedCount > 0
+  const daysSinceSent = c.lastSent ? Math.floor((Date.now() - new Date(c.lastSent).getTime()) / 86400000) : 999
+  const daysSinceReply = c.lastReceived ? Math.floor((Date.now() - new Date(c.lastReceived).getTime()) / 86400000) : 999
 
   // Bounce
-  if (f.includes('mailer-daemon') || f.includes('postmaster') ||
+  if (s.includes('mailer-daemon') || s.includes('postmaster') ||
       sub.includes('delivery status') || sub.includes('undeliverable') ||
       sub.includes('mail delivery failed') || sub.includes('returned mail'))
     return 'bounce'
@@ -142,31 +110,25 @@ const classifyMessage = (snippet, subject, from, to, cc, labels, date) => {
     return 'out_of_office'
 
   // Wrong Person
-  if (s.includes('yanlış kişi') || s.includes('ben değilim') ||
-      s.includes('sorumlu değil') || s.includes('başka birine yönlendiriyorum'))
+  if (hasReply && (s.includes('yanlış kişi') || s.includes('ben değilim') ||
+      s.includes('sorumlu değil') || s.includes('başka birine yönlendiriyorum')))
     return 'wrong_person'
 
   // Not Interested
-  if (s.includes('ilgilenmiyoruz') || s.includes('ilgilenmiyorum') ||
+  if (hasReply && (s.includes('ilgilenmiyoruz') || s.includes('ilgilenmiyorum') ||
       s.includes('ihtiyacımız yok') || s.includes('gündemimizde değil') ||
-      s.includes('şu an için değil') || s.includes('not interested'))
+      s.includes('şu an için değil') || s.includes('not interested')))
     return 'not_interested'
 
   // Competitor
-  if (s.includes('babbel') || s.includes('duolingo') || s.includes('rosetta') ||
-      s.includes('başka bir platform') || s.includes('farklı bir çözüm'))
+  if (hasReply && (s.includes('babbel') || s.includes('duolingo') || s.includes('rosetta') ||
+      s.includes('başka bir platform') || s.includes('farklı bir çözüm')))
     return 'competitor'
 
   // Reschedule
-  if (s.includes('reschedule') || s.includes('ertelemek') ||
-      s.includes('ertelememiz') || s.includes('başka bir güne') ||
-      s.includes('acil bir durum sebebiyle ertelemeniz'))
+  if (hasReply && (s.includes('reschedule') || s.includes('ertelemek') ||
+      s.includes('ertelememiz') || s.includes('başka bir güne')))
     return 'reschedule'
-
-  // Meeting Held — Cc'de batuhan/kemal/tugba VAR + toplantı konuşuluyor
-  if ((c.includes('batuhan@cambly.com') || c.includes('kemal@cambly.com') || c.includes('tugba@cambly.com')) &&
-      (s.includes('toplantı') || s.includes('davetiye') || s.includes('görüşme') || s.includes('meeting')))
-    return 'meeting_held'
 
   // Meeting Scheduled
   if (s.includes('toplantı oluşturdum') || s.includes('davetiye gönderdim') ||
@@ -175,10 +137,10 @@ const classifyMessage = (snippet, subject, from, to, cc, labels, date) => {
     return 'meeting_scheduled'
 
   // Processing - Meeting (müsaitlik konuşuluyor)
-  if (s.includes('müsaitlik') || s.includes('müsait misiniz') ||
+  if (hasReply && (s.includes('müsaitlik') || s.includes('müsait misiniz') ||
       s.includes('hangi gün') || s.includes('uygun olur mu') ||
       s.includes('ne zaman uygun') || s.includes('saat kaçta') ||
-      s.includes('takvim'))
+      s.includes('takvim')))
     return 'processing_meeting'
 
   // B2C Campaign
@@ -187,24 +149,24 @@ const classifyMessage = (snippet, subject, from, to, cc, labels, date) => {
       sub.includes('english benefit at'))
     return 'b2c_campaign'
 
+  // Yanıt geldiyse → Needs Reply (sen henüz yanıtlamamışsan)
+  if (hasReply && hasSent && new Date(c.lastReceived) > new Date(c.lastSent))
+    return 'needs_reply'
+
   // 2. Follow Up — breakup mesajları
-  if (s.includes('birkaç kez ulaşmaya çalıştım') ||
-      s.includes('doğrudan konuya gelmek') ||
-      s.includes('son bir not') ||
-      s.includes('bu yüzden doğrudan'))
+  if (c.sentCount >= 3 || s.includes('birkaç kez ulaşmaya çalıştım') ||
+      s.includes('doğrudan konuya gelmek') || s.includes('son bir not'))
     return 'follow_up_2'
 
   // 1. Follow Up
-  if (s.includes('farklı bir açıdan tekrar') ||
-      s.includes('düşünerek tekrar ulaşmak') ||
-      s.includes('gündemine denk gelmemiş olabilece') ||
+  if (c.sentCount === 2 || s.includes('farklı bir açıdan tekrar') ||
       s.includes('tekrar ulaşmak istedim'))
     return 'follow_up_1'
 
-  // No Answer — 7+ gün geçmiş
-  if (date) {
-    const days = Math.floor((Date.now() - new Date(date).getTime()) / 86400000)
-    if (days >= 7) return 'no_answer'
+  // Sadece gönderilmiş, yanıt yok
+  if (hasSent && !hasReply) {
+    if (daysSinceSent >= 7) return 'no_answer'
+    return 'reached_out'
   }
 
   // Default
@@ -239,6 +201,7 @@ export default function DuygyCRM({ token, onLogout }) {
   const [pipeFilter, setPipeFilter] = useState('all')
   const [expStage, setExpStage]     = useState(null)
   const [notes, setNotes]           = useState({})
+  const [labelMap, setLabelMap]     = useState(null) // { stage_name: gmail_label_id }
 
   // İlk yükleme
   useEffect(() => {
@@ -247,6 +210,7 @@ export default function DuygyCRM({ token, onLogout }) {
       setContacts(cache.contacts)
       setCompanies(cache.companies || {})
       setNotes(cache.notes || {})
+      if (cache.labelMap) setLabelMap(cache.labelMap)
       setLastSync(cache.savedAt)
       setStatusMsg(`Cache: ${cache.contacts.length} kişi`)
     } else {
@@ -255,8 +219,12 @@ export default function DuygyCRM({ token, onLogout }) {
   }, [])
 
   // Mesaj listesinden contact/company yapısı
-  const buildData = useCallback((messages, labelWriteQueue = []) => {
-    const map = {}
+  // Hem gönderilen hem alınan mailleri işler
+  const buildData = useCallback((messages, labelWriteQueue = [], stageToLabelId = {}, labelIdToStage = {}) => {
+    // Thread bazlı gruplama: her thread'deki tüm mesajları topla
+    const threadMap = {} // threadId → { sent: [], received: [], contactEmail, ... }
+    const contactMap = {}
+
     messages.forEach(msg => {
       const headers = msg.payload?.headers || []
       const from    = hdr(headers, 'From').toLowerCase()
@@ -265,53 +233,89 @@ export default function DuygyCRM({ token, onLogout }) {
       const date    = hdr(headers, 'Date')
       const snippet = msg.snippet || ''
       const labels  = msg.labelIds || []
+      const cc      = hdr(headers, 'Cc').toLowerCase()
+      const isSent  = from.includes(MY_EMAIL.toLowerCase())
 
-      if (!from.includes(MY_EMAIL.toLowerCase())) return
-
-      const toEmails = to.split(/[,;]/)
-        .map(e => e.trim().replace(/.*<(.+)>.*/, '$1').trim())
-        .filter(e => e && !e.includes('cambly.com') && !e.includes('mailer-daemon'))
-
-      if (!toEmails.length) return
-
-      const cc    = hdr(headers, 'Cc').toLowerCase()
-      const fromLabel = stageFromLabels(labels)
-      const stage = fromLabel || classifyMessage(snippet, subject, from, to, cc, labels, date)
-
-      // Label yoksa threadId'yi yazma kuyruğuna al
-      if (!fromLabel && msg.threadId) {
-        const labelId = STAGE_TO_LABEL[stage]
-        if (labelId) labelWriteQueue.push({ threadId: msg.threadId, labelId })
+      // Karşı tarafın emailini bul
+      let contactEmails = []
+      if (isSent) {
+        contactEmails = to.split(/[,;]/)
+          .map(e => e.trim().replace(/.*<(.+)>.*/, '$1').trim().toLowerCase())
+          .filter(e => e && !e.includes('cambly.com') && !e.includes('mailer-daemon'))
+      } else {
+        const fromEmail = from.replace(/.*<(.+)>.*/, '$1').trim().toLowerCase()
+        if (fromEmail && !fromEmail.includes('cambly.com') && !fromEmail.includes('mailer-daemon')) {
+          contactEmails = [fromEmail]
+        }
       }
 
-      toEmails.forEach(email => {
-        const key    = email.toLowerCase()
+      if (!contactEmails.length) return
+
+      contactEmails.forEach(email => {
+        const key = email.toLowerCase()
         const domain = getDomain(key)
         if (!domain) return
 
-        if (!map[key]) {
-          map[key] = {
+        if (!contactMap[key]) {
+          contactMap[key] = {
             email: key, domain,
             company: companyName(domain),
-            name: extractName(snippet, to),
-            stage, lastContact: date, firstContact: date,
+            name: extractName(snippet, isSent ? to : from),
+            sentCount: 0, receivedCount: 0,
+            lastSent: null, lastReceived: null,
+            firstContact: date, lastContact: date,
             subject, snippet: snippet.slice(0, 150),
-            threadId: msg.threadId, messageCount: 1,
+            threadId: msg.threadId, messageCount: 0,
+            labels: [],
           }
+        }
+
+        const c = contactMap[key]
+        c.messageCount++
+        c.labels.push(...labels)
+
+        if (isSent) {
+          c.sentCount++
+          if (!c.lastSent || new Date(date) > new Date(c.lastSent)) c.lastSent = date
         } else {
-          map[key].messageCount++
-          if (new Date(date) > new Date(map[key].lastContact)) {
-            map[key].lastContact = date
-            map[key].stage = stage
-            map[key].subject = subject
-            map[key].snippet = snippet.slice(0, 150)
-          }
-          if (new Date(date) < new Date(map[key].firstContact))
-            map[key].firstContact = date
+          c.receivedCount++
+          if (!c.lastReceived || new Date(date) > new Date(c.lastReceived)) c.lastReceived = date
+        }
+
+        if (new Date(date) > new Date(c.lastContact)) {
+          c.lastContact = date
+          c.subject = subject
+          c.snippet = snippet.slice(0, 150)
+        }
+        if (new Date(date) < new Date(c.firstContact)) {
+          c.firstContact = date
         }
       })
     })
-    return Object.values(map)
+
+    // Her contact için stage belirle
+    return Object.values(contactMap).map(c => {
+      // Önce Gmail label'dan stage bul
+      const uniqueLabels = [...new Set(c.labels)]
+      const fromLabel = stageFromLabels(uniqueLabels, labelIdToStage)
+
+      let stage
+      if (fromLabel) {
+        stage = fromLabel
+      } else {
+        // İki yönlü iletişim bazlı classification
+        stage = classifyContact(c)
+      }
+
+      // Label yoksa yazma kuyruğuna al
+      if (!fromLabel && c.threadId && stageToLabelId[stage]) {
+        labelWriteQueue.push({ threadId: c.threadId, labelId: stageToLabelId[stage] })
+      }
+
+      // Gereksiz field'ları temizle
+      delete c.labels
+      return { ...c, stage }
+    })
   }, [])
 
   const buildCompanies = useCallback((ctcts) => {
@@ -333,21 +337,47 @@ export default function DuygyCRM({ token, onLogout }) {
   const fullScan = useCallback(async () => {
     setLoading(true)
     setProgress(5)
-    setStatusMsg('Gmail taranıyor...')
+    setStatusMsg('Gmail etiketleri hazırlanıyor...')
     try {
+      // 1) Gmail label'larını oluştur / eşleştir
+      const stageToLabelId = await ensureCrmLabels(token, ALL_STAGES)
+      const labelIdToStage = Object.fromEntries(
+        Object.entries(stageToLabelId).map(([stage, id]) => [id, stage])
+      )
+      setLabelMap(stageToLabelId)
+      setProgress(10)
+
+      // 2) Hem gönderilen hem alınan mailleri tara
       const allMsgs = []
       let pageToken = null
       let page = 0
 
+      // Gönderilen mailler
+      setStatusMsg('Gönderilen mailler taranıyor...')
       do {
         const res = await gmailSearchMessages(token, `from:${MY_EMAIL}`, 500, pageToken)
         const ids = res.messages || []
         pageToken = res.nextPageToken
         page++
-        setProgress(Math.min(60, 5 + page * 10))
-        setStatusMsg(`${allMsgs.length + ids.length} mesaj bulundu...`)
+        setProgress(Math.min(40, 10 + page * 5))
+        setStatusMsg(`${allMsgs.length + ids.length} gönderilen mesaj...`)
+        const batch = await Promise.all(
+          ids.map(m => gmailGetMessage(token, m.id).catch(() => null))
+        )
+        allMsgs.push(...batch.filter(Boolean))
+      } while (pageToken)
 
-        // Her mesajın detayını çek (batch)
+      // Alınan mailler (cambly.com dışı gönderenlerden)
+      setStatusMsg('Gelen yanıtlar taranıyor...')
+      pageToken = null
+      page = 0
+      do {
+        const res = await gmailSearchMessages(token, `to:${MY_EMAIL} -from:${MY_EMAIL} -from:*@cambly.com`, 500, pageToken)
+        const ids = res.messages || []
+        pageToken = res.nextPageToken
+        page++
+        setProgress(Math.min(70, 40 + page * 5))
+        setStatusMsg(`${allMsgs.length + ids.length} toplam mesaj...`)
         const batch = await Promise.all(
           ids.map(m => gmailGetMessage(token, m.id).catch(() => null))
         )
@@ -358,32 +388,31 @@ export default function DuygyCRM({ token, onLogout }) {
       setStatusMsg('Veriler işleniyor...')
 
       const labelWriteQueue = []
-      const ctcts = buildData(allMsgs, labelWriteQueue)
+      const ctcts = buildData(allMsgs, labelWriteQueue, stageToLabelId, labelIdToStage)
       const comps = buildCompanies(ctcts)
 
       setContacts(ctcts)
       setCompanies(comps)
       setLastSync(Date.now())
 
-      saveCache({ contacts: ctcts, companies: comps, notes })
-      setProgress(95)
+      saveCache({ contacts: ctcts, companies: comps, notes, labelMap: stageToLabelId })
+      setProgress(90)
 
-      // Label'ları Gmail'e yaz (batch, arka planda)
+      // Label'ları Gmail'e yaz
       if (labelWriteQueue.length > 0) {
         setStatusMsg(`Gmail'e ${labelWriteQueue.length} etiket yazılıyor...`)
-        const allLabelIds = Object.values(LABEL_IDS)
+        const allCrmLabelIds = Object.values(stageToLabelId)
         let written = 0
-        // Duplicate thread'leri filtrele
         const uniqueQueue = labelWriteQueue.filter((item, idx, arr) =>
           arr.findIndex(x => x.threadId === item.threadId) === idx
         )
         for (const { threadId, labelId } of uniqueQueue) {
           try {
-            await gmailModifyThread(token, threadId, [labelId], allLabelIds.filter(id => id !== labelId))
+            await gmailModifyThread(token, threadId, [labelId], allCrmLabelIds.filter(id => id !== labelId))
             written++
           } catch (e) { /* sessizce devam */ }
         }
-        setStatusMsg(`✓ ${ctcts.length} kişi — ${written} etiket Gmail'e yazıldı`)
+        setStatusMsg(`✓ ${ctcts.length} kişi — ${written} etiket yazıldı`)
       } else {
         setStatusMsg(`✓ ${ctcts.length} kişi, ${Object.keys(comps).length} şirket`)
       }
@@ -444,18 +473,18 @@ export default function DuygyCRM({ token, onLogout }) {
     })
 
     // Gmail etiket güncelle (arka planda)
-    if (contact.threadId) {
-      const newLabelId = STAGE_TO_LABEL[newStage]
-      const allLabelIds = Object.values(LABEL_IDS)
+    if (contact.threadId && labelMap) {
+      const newLabelId = labelMap[newStage]
+      const allCrmLabelIds = Object.values(labelMap)
       try {
         await gmailModifyThread(
           token, contact.threadId,
           newLabelId ? [newLabelId] : [],
-          allLabelIds
+          allCrmLabelIds.filter(id => id !== newLabelId)
         )
       } catch (e) { console.warn('Gmail güncelleme hatası:', e.message) }
     }
-  }, [contacts, token, buildCompanies, notes])
+  }, [contacts, token, buildCompanies, notes, labelMap])
 
   // Stats
   const stats = {
