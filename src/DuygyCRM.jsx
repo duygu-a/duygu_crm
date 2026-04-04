@@ -518,6 +518,21 @@ export default function DuygyCRM({ token, onLogout }) {
 
       const labelWriteQueue = []
       const ctcts = buildData(allMsgs, labelWriteQueue, stageToLabelId, labelIdToStage)
+
+      // contacts_info'dan doğru isimleri al
+      try {
+        const infoRows = await fetch('/api/contacts-info').then(r => r.json())
+        const infoMap = {}
+        infoRows.forEach(r => { if (r.email) infoMap[r.email.toLowerCase()] = r })
+        ctcts.forEach(c => {
+          const info = infoMap[c.email]
+          if (info) {
+            if (info.name) c.name = info.name
+            if (info.company) c.company = info.company
+          }
+        })
+      } catch (e) { /* contacts_info yoksa devam */ }
+
       const comps = buildCompanies(ctcts)
 
       setContacts(ctcts)
