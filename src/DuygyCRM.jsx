@@ -418,6 +418,9 @@ function DateFilter({ period, onPeriodChange, startDate, endDate, onStartChange,
 }
 
 function FUCard({ title, subtitle, items, total, color, urgent }) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? items : items.slice(0, 5)
+  const hasMore = items.length > 5
   return (
     <Card>
       <div style={{ padding: '12px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}` }}>
@@ -431,7 +434,7 @@ function FUCard({ title, subtitle, items, total, color, urgent }) {
         </div>
       </div>
       <div style={{ padding: '6px 0' }}>
-        {items.slice(0, 5).map((item, i) => (
+        {shown.map((item, i) => (
           <div key={i} style={{ padding: '7px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <span style={{ fontSize: 12, fontWeight: 500 }}>{item.company}</span>
@@ -440,8 +443,10 @@ function FUCard({ title, subtitle, items, total, color, urgent }) {
             <span style={{ fontSize: 10.5, color: C.muted }}>{item.date}</span>
           </div>
         ))}
-        {total > items.length && (
-          <div style={{ padding: '6px 16px', fontSize: 10.5, color: C.muted }}>+{total - items.length} şirket daha...</div>
+        {hasMore && (
+          <div onClick={() => setExpanded(!expanded)} style={{ padding: '8px 16px', fontSize: 11.5, color: '#3B82F6', cursor: 'pointer', fontWeight: 500, textAlign: 'center', borderTop: `1px solid ${C.bg2}` }}>
+            {expanded ? 'Daralt' : `+${items.length - 5} şirket daha göster`}
+          </div>
         )}
       </div>
     </Card>
