@@ -4,7 +4,6 @@ import { getDb } from './db.js'
 export default async function handler(req, res) {
   const sql = getDb()
 
-  // GET — tüm kişiler veya tek kişi (?email=...)
   if (req.method === 'GET') {
     try {
       const { email, company } = req.query
@@ -22,7 +21,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // POST — tek kişi ekle/güncelle
   if (req.method === 'POST') {
     const c = req.body
     if (!c.email && !c.id) return res.status(400).json({ error: 'email veya id gerekli' })
@@ -31,28 +29,24 @@ export default async function handler(req, res) {
       const id = c.id || `manual-${Date.now()}`
       await sql`
         INSERT INTO contacts_info (
-          id, name, email, company, title, status, linkedin,
-          linkedin_connected, reached_out_date, last_mail_snippet,
-          source, notes, linkedin_status, linkedin_date, updated_at
+          id, name, email, company, title, linkedin,
+          campaign, first_email, emails_sent, last_email,
+          reply_status, pipeline_stage, source, notes, updated_at
         ) VALUES (
           ${id}, ${c.name || null}, ${c.email || null}, ${c.company || null},
-          ${c.title || null}, ${c.status || null}, ${c.linkedin || null},
-          ${c.linkedinConnected || false}, ${c.reachedOutDate || null},
-          ${c.lastMailSnippet || null}, ${c.source || 'Manual'},
-          ${c.notes || null}, ${c.linkedinStatus || null},
-          ${c.linkedinDate || null}, NOW()
+          ${c.title || null}, ${c.linkedin || null}, ${c.campaign || null},
+          ${c.first_email || null}, ${c.emails_sent || 0}, ${c.last_email || null},
+          ${c.reply_status || null}, ${c.pipeline_stage || null},
+          ${c.source || 'Manual'}, ${c.notes || null}, NOW()
         )
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name, email = EXCLUDED.email,
           company = EXCLUDED.company, title = EXCLUDED.title,
-          status = EXCLUDED.status, linkedin = EXCLUDED.linkedin,
-          linkedin_connected = EXCLUDED.linkedin_connected,
-          reached_out_date = EXCLUDED.reached_out_date,
-          last_mail_snippet = EXCLUDED.last_mail_snippet,
-          source = EXCLUDED.source, notes = EXCLUDED.notes,
-          linkedin_status = EXCLUDED.linkedin_status,
-          linkedin_date = EXCLUDED.linkedin_date,
-          updated_at = NOW()
+          linkedin = EXCLUDED.linkedin, campaign = EXCLUDED.campaign,
+          first_email = EXCLUDED.first_email, emails_sent = EXCLUDED.emails_sent,
+          last_email = EXCLUDED.last_email, reply_status = EXCLUDED.reply_status,
+          pipeline_stage = EXCLUDED.pipeline_stage,
+          notes = EXCLUDED.notes, updated_at = NOW()
       `
       return res.status(200).json({ ok: true, id })
     } catch (err) {
@@ -60,7 +54,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // DELETE
   if (req.method === 'DELETE') {
     const { id } = req.query
     if (!id) return res.status(400).json({ error: 'id gerekli' })

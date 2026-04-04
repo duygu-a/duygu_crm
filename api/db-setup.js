@@ -41,37 +41,47 @@ export default async function handler(req, res) {
       )
     `
 
-    // Excel'den gelen kişi bilgileri
+    // Kişi bilgileri (Excel Master Contacts)
+    await sql`DROP TABLE IF EXISTS contacts_info`
     await sql`
-      CREATE TABLE IF NOT EXISTS contacts_info (
+      CREATE TABLE contacts_info (
         id              TEXT PRIMARY KEY,
         name            TEXT,
         email           TEXT,
         company         TEXT,
         title           TEXT,
-        status          TEXT,
         linkedin        TEXT,
-        linkedin_connected BOOLEAN DEFAULT FALSE,
-        reached_out_date TEXT,
-        last_mail_snippet TEXT,
-        source          TEXT,
+        campaign        TEXT,
+        first_email     TEXT,
+        emails_sent     INT DEFAULT 0,
+        last_email      TEXT,
+        reply_status    TEXT,
+        pipeline_stage  TEXT,
+        source          TEXT DEFAULT 'Excel Import',
         notes           TEXT,
-        linkedin_status TEXT,
-        linkedin_date   TEXT,
         updated_at      TIMESTAMPTZ DEFAULT NOW()
       )
     `
 
-    // Excel'den gelen şirket bilgileri
+    // Şirket bilgileri (Excel Master Companies)
+    await sql`DROP TABLE IF EXISTS companies_info`
     await sql`
-      CREATE TABLE IF NOT EXISTS companies_info (
-        id         TEXT PRIMARY KEY,
-        name       TEXT NOT NULL,
-        status     TEXT,
-        notes      TEXT,
-        website    TEXT,
-        linkedin   TEXT,
-        updated_at TIMESTAMPTZ DEFAULT NOW()
+      CREATE TABLE companies_info (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        sector          TEXT,
+        campaign        TEXT,
+        contacts_gmail  INT DEFAULT 0,
+        contacts_report INT DEFAULT 0,
+        first_contact   TEXT,
+        last_contact    TEXT,
+        has_reply       TEXT,
+        pipeline_stage  TEXT,
+        website         TEXT,
+        linkedin        TEXT,
+        result_summary  TEXT,
+        notes           TEXT,
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
       )
     `
 
@@ -81,7 +91,7 @@ export default async function handler(req, res) {
     await sql`CREATE INDEX IF NOT EXISTS idx_contacts_info_company ON contacts_info(company)`
     await sql`CREATE INDEX IF NOT EXISTS idx_companies_info_name ON companies_info(name)`
 
-    return res.status(200).json({ ok: true, message: 'Tüm tablolar oluşturuldu' })
+    return res.status(200).json({ ok: true, message: 'Tüm tablolar oluşturuldu (contacts_info ve companies_info sıfırlandı)' })
   } catch (err) {
     console.error('DB setup hatası:', err)
     return res.status(500).json({ error: err.message })

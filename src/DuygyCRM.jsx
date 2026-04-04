@@ -1208,7 +1208,7 @@ function ContactDetailModal({ email, onClose, onSave }) {
           setForm(rows[0])
         } else {
           // DB'de yoksa boş form
-          const blank = { id: '', name: '', email, company: '', title: '', status: '', linkedin: '', linkedin_connected: false, reached_out_date: '', last_mail_snippet: '', source: '', notes: '', linkedin_status: '', linkedin_date: '' }
+          const blank = { id: '', name: '', email, company: '', title: '', linkedin: '', campaign: '', first_email: '', emails_sent: 0, last_email: '', reply_status: '', pipeline_stage: '', source: '', notes: '' }
           setInfo(null)
           setForm(blank)
           setEditing(true)
@@ -1235,9 +1235,10 @@ function ContactDetailModal({ email, onClose, onSave }) {
 
   const fields = [
     ['name', 'Ad Soyad'], ['email', 'Email'], ['company', 'Şirket'],
-    ['title', 'Ünvan'], ['status', 'Durum'], ['linkedin', 'LinkedIn'],
-    ['linkedin_status', 'LinkedIn Durumu'], ['reached_out_date', 'İlk İletişim'],
-    ['source', 'Kaynak'], ['notes', 'Not'],
+    ['title', 'Ünvan'], ['linkedin', 'LinkedIn'], ['campaign', 'Kampanya'],
+    ['first_email', 'İlk Email'], ['emails_sent', 'Gönderilen Email'],
+    ['last_email', 'Son Email'], ['reply_status', 'Yanıt Durumu'],
+    ['pipeline_stage', 'Pipeline Stage'], ['notes', 'Not'],
   ]
 
   return (
@@ -1306,7 +1307,7 @@ function CompanyDetailModal({ companyName, onClose }) {
       .then(rows => {
         if (rows.length > 0) { setInfo(rows[0]); setForm(rows[0]) }
         else {
-          const blank = { id: '', name: companyName, status: '', notes: '', website: '', linkedin: '' }
+          const blank = { id: '', name: companyName, sector: '', campaign: '', pipeline_stage: '', website: '', linkedin: '', result_summary: '', notes: '' }
           setInfo(null); setForm(blank); setEditing(true)
         }
       })
@@ -1327,8 +1328,11 @@ function CompanyDetailModal({ companyName, onClose }) {
   if (!companyName) return null
 
   const fields = [
-    ['name', 'Şirket Adı'], ['status', 'Durum'],
-    ['website', 'Website'], ['linkedin', 'LinkedIn'], ['notes', 'Not'],
+    ['name', 'Şirket Adı'], ['sector', 'Sektör'], ['campaign', 'Kampanya'],
+    ['pipeline_stage', 'Pipeline Stage'], ['has_reply', 'Yanıt'],
+    ['first_contact', 'İlk İletişim'], ['last_contact', 'Son İletişim'],
+    ['website', 'Website'], ['linkedin', 'LinkedIn'],
+    ['result_summary', 'Sonuç'], ['notes', 'Not'],
   ]
 
   return (
