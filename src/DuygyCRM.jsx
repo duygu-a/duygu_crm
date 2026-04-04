@@ -642,6 +642,17 @@ export default function DuygyCRM({ token, onLogout }) {
     }
   }, [contacts, token, buildCompanies, notes, labelMap])
 
+  // Kişi bilgisi güncellendiğinde listeyi de güncelle
+  const updateContactInfo = useCallback((email, updates) => {
+    setContacts(prev => {
+      const updated = prev.map(c => c.email === email ? { ...c, ...updates } : c)
+      const comps = buildCompanies(updated)
+      setCompanies(comps)
+      saveCache({ contacts: updated, companies: comps, notes })
+      return updated
+    })
+  }, [buildCompanies, notes])
+
   // Stats
   const stats = {
     total:     contacts.length,
@@ -689,10 +700,10 @@ export default function DuygyCRM({ token, onLogout }) {
 
       {/* SAYFA */}
       <main style={S.main}>
-        {tab === 'Dashboard'  && <Dashboard stats={stats} weeklyC={weeklyC} overdue={overdue} />}
-        {tab === 'Pipeline'   && <Pipeline contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} pipeFilter={pipeFilter} setPipeFilter={setPipeFilter} expStage={expStage} setExpStage={setExpStage} changeStage={changeStage} />}
+        {tab === 'Dashboard'  && <Dashboard stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} />}
+        {tab === 'Pipeline'   && <Pipeline contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} pipeFilter={pipeFilter} setPipeFilter={setPipeFilter} expStage={expStage} setExpStage={setExpStage} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
         {tab === 'Daily'      && <Daily contacts={contacts} overdue={overdue} />}
-        {tab === 'Companies'  && <Companies companies={companies} selCompany={selCompany} setSelCompany={setSelCompany} notes={notes} setNotes={setNotes} changeStage={changeStage} />}
+        {tab === 'Companies'  && <Companies companies={companies} selCompany={selCompany} setSelCompany={setSelCompany} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
         {tab === 'Performans' && <Performans contacts={contacts} stats={stats} />}
       </main>
     </div>
@@ -700,7 +711,7 @@ export default function DuygyCRM({ token, onLogout }) {
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────
-function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
+function Dashboard({ stats, weeklyC, overdue: rawOverdue, updateContactInfo }) {
   const [detailEmail, setDetailEmail] = useState(null)
   const [detailCompany, setDetailCompany] = useState(null)
   const { sortKey, sortDir, toggle, sortFn } = useSortable('days', 'desc')
@@ -783,14 +794,14 @@ function Dashboard({ stats, weeklyC, overdue: rawOverdue }) {
           </div>
         </>
       )}
-      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} />}
+      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} onSave={updateContactInfo} />}
       {detailCompany && <CompanyDetailModal companyName={detailCompany} onClose={() => setDetailCompany(null)} />}
     </div>
   )
 }
 
 // ── PIPELINE ──────────────────────────────────────────────────
-function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, expStage, setExpStage, changeStage }) {
+function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, expStage, setExpStage, changeStage, updateContactInfo }) {
   const stages = pipeFilter === 'outcome' ? OUTCOME_STAGES : PIPELINE_STAGES
   const [detailEmail, setDetailEmail] = useState(null)
   return (
@@ -827,7 +838,7 @@ function Pipeline({ contacts, searchQ, setSearchQ, pipeFilter, setPipeFilter, ex
           )
         })}
       </div>
-      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} />}
+      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} onSave={updateContactInfo} />}
     </div>
   )
 }
@@ -887,7 +898,7 @@ function DailySection({ title, contacts, color, urgent }) {
 }
 
 // ── COMPANIES ─────────────────────────────────────────────────
-function Companies({ companies, selCompany, setSelCompany, notes, setNotes, changeStage }) {
+function Companies({ companies, selCompany, setSelCompany, notes, setNotes, changeStage, updateContactInfo }) {
   const [search, setSearch] = useState('')
   const [detailCompany, setDetailCompany] = useState(null)
   const [detailEmail, setDetailEmail] = useState(null)
@@ -970,7 +981,7 @@ function Companies({ companies, selCompany, setSelCompany, notes, setNotes, chan
         </div>
       )}
       {detailCompany && <CompanyDetailModal companyName={detailCompany} onClose={() => setDetailCompany(null)} />}
-      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} />}
+      {detailEmail && <ContactDetailModal email={detailEmail} onClose={() => setDetailEmail(null)} onSave={updateContactInfo} />}
     </div>
   )
 }
@@ -1161,7 +1172,7 @@ const S = {
 }
 
 // ── KİŞİ DETAY MODAL ─────────────────────────────────────────
-function ContactDetailModal({ email, onClose }) {
+function ContactDetailModal({ email, onClose, onSave }) {
   const [info, setInfo] = useState(null)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({})
@@ -1196,6 +1207,8 @@ function ContactDetailModal({ email, onClose }) {
     setInfo(form)
     setEditing(false)
     setSaving(false)
+    // Ana listeyi güncelle
+    if (onSave) onSave(email, { name: form.name, company: form.company })
   }
 
   if (!email) return null
