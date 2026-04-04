@@ -417,6 +417,21 @@ function DateFilter({ period, onPeriodChange, startDate, endDate, onStartChange,
   )
 }
 
+function StageFilter({ selected, onSelect }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14 }}>
+      <button onClick={() => onSelect('all')} style={{ padding: '4px 12px', borderRadius: 6, border: `1px solid ${selected === 'all' ? C.text : C.border}`, background: selected === 'all' ? C.text : C.white, color: selected === 'all' ? C.white : C.muted, fontSize: 11, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>Tümü</button>
+      {ALL_STAGES.map(s => {
+        const meta = STAGE_META[s]
+        const active = selected === s
+        return (
+          <button key={s} onClick={() => onSelect(active ? 'all' : s)} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${active ? meta.color : C.border}`, background: active ? meta.color + '18' : C.white, color: active ? meta.color : C.muted, fontSize: 11, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>{meta.label}</button>
+        )
+      })}
+    </div>
+  )
+}
+
 function FUCard({ title, subtitle, items, total, color, urgent }) {
   const [expanded, setExpanded] = useState(false)
   const shown = expanded ? items : items.slice(0, 5)
@@ -1471,6 +1486,7 @@ function CompaniesPage({ companies, selCompanies, setSelCompanies, notes, setNot
   const [period, setPeriod] = useState('Tümü')
   const [startDate, setStartDate] = useState('2026-03-01')
   const [endDate, setEndDate] = useState('2026-04-04')
+  const [stageFilter, setStageFilter] = useState('all')
   const { sortKey, sortDir, toggle, sortFn } = useSortable('date', 'desc')
 
   const compGetters = {
@@ -1483,9 +1499,11 @@ function CompaniesPage({ companies, selCompanies, setSelCompanies, notes, setNot
     return filterByDate(all, period, startDate, endDate, 'lastContact')
   }, [companies, period, startDate, endDate])
 
-  const filtered = dateFiltered.filter(c =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.domain.includes(search.toLowerCase())
-  )
+  const filtered = dateFiltered.filter(c => {
+    if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !c.domain.includes(search.toLowerCase())) return false
+    if (stageFilter !== 'all' && c.stage !== stageFilter) return false
+    return true
+  })
   const list = sortFn(filtered, compGetters)
 
   const toggleSelect = (key) => {
@@ -1515,6 +1533,7 @@ function CompaniesPage({ companies, selCompanies, setSelCompanies, notes, setNot
   return (
     <>
       <DateFilter period={period} onPeriodChange={setPeriod} startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
+      <StageFilter selected={stageFilter} onSelect={setStageFilter} />
 
       {/* Toplu İşlem Bar */}
       {selCompanies.size > 0 && (
