@@ -465,6 +465,45 @@ export default function DuygyCRM({ token, onLogout }) {
       ])
 
       if (dbContacts && dbContacts.length > 0) {
+        // contacts_info + companies_info'dan domain→company haritası oluştur
+        try {
+          const [infoRows, compInfoRows] = await Promise.all([
+            fetch('/api/contacts-info').then(r => r.json()).catch(() => []),
+            fetch('/api/companies-info').then(r => r.json()).catch(() => []),
+          ])
+          const domainToCompany = {}
+          infoRows.forEach(r => {
+            if (r.email && r.company) {
+              const d = getDomain(r.email)
+              if (d) domainToCompany[d] = r.company
+            }
+          })
+          compInfoRows.forEach(r => {
+            if (r.name && r.website) {
+              const m = r.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+              if (m) domainToCompany[m.toLowerCase()] = r.name
+            }
+          })
+          // DB'den gelen kişilerin şirket adlarını düzelt
+          const infoMap = {}
+          infoRows.forEach(r => { if (r.email) infoMap[r.email.toLowerCase()] = r })
+          let fixed = 0
+          dbContacts.forEach(c => {
+            const info = infoMap[c.email]
+            if (info && info.company && c.company !== info.company) {
+              c.company = info.company
+              if (info.name) c.name = info.name
+              fixed++
+            } else if (!info && domainToCompany[c.domain] && c.company !== domainToCompany[c.domain]) {
+              c.company = domainToCompany[c.domain]
+              fixed++
+            }
+          })
+          if (fixed > 0) {
+            dbSaveContacts(dbContacts) // düzeltilmiş şirket adlarını DB'ye yaz
+          }
+        } catch (e) { /* eşleşme hatası — devam */ }
+
         const comps = groupByCompany(dbContacts)
         setContacts(dbContacts)
         setCompanies(comps)
@@ -677,14 +716,43 @@ export default function DuygyCRM({ token, onLogout }) {
       const ctcts = buildData(allMsgs, labelWriteQueue, stageToLabelId, labelIdToStage)
 
       try {
+        // 1) contacts_info'dan email → kişi bilgisi haritası
         const infoRows = await fetch('/api/contacts-info').then(r => r.json())
         const infoMap = {}
-        infoRows.forEach(r => { if (r.email) infoMap[r.email.toLowerCase()] = r })
+        const domainToCompany = {} // domain → şirket adı haritası
+        infoRows.forEach(r => {
+          if (r.email) {
+            infoMap[r.email.toLowerCase()] = r
+            // Domain → company haritası oluştur (contacts_info'daki şirket adlarından)
+            if (r.company) {
+              const d = getDomain(r.email)
+              if (d) domainToCompany[d] = r.company
+            }
+          }
+        })
+
+        // 2) companies_info'dan da domain → şirket adı haritası (website alanından)
+        try {
+          const compInfoRows = await fetch('/api/companies-info').then(r => r.json())
+          compInfoRows.forEach(r => {
+            if (r.name && r.website) {
+              // Website URL'den domain çıkar
+              const m = r.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+              if (m) domainToCompany[m.toLowerCase()] = r.name
+            }
+          })
+        } catch (e) { /* companies_info yoksa devam */ }
+
+        // 3) Her Gmail kişisini eşleştir
         ctcts.forEach(c => {
           const info = infoMap[c.email]
           if (info) {
+            // Tam email eşleşmesi — en güvenilir
             if (info.name) c.name = info.name
             if (info.company) c.company = info.company
+          } else if (domainToCompany[c.domain]) {
+            // Email eşleşmesi yok ama domain eşleşmesi var
+            c.company = domainToCompany[c.domain]
           }
         })
       } catch (e) { /* contacts_info yoksa devam */ }
