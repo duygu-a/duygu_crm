@@ -333,6 +333,25 @@ export default function DuygyCRM({ token, onLogout }) {
     return m
   }, [])
 
+  // Mesajları batch halinde çek (rate limit koruması)
+  const fetchMessagesBatched = useCallback(async (token, ids, onProgress) => {
+    const BATCH_SIZE = 20
+    const DELAY_MS = 200
+    const results = []
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE)
+      const batch = await Promise.all(
+        chunk.map(m => gmailGetMessage(token, m.id).catch(() => null))
+      )
+      results.push(...batch.filter(Boolean))
+      if (onProgress) onProgress(results.length)
+      if (i + BATCH_SIZE < ids.length) {
+        await new Promise(r => setTimeout(r, DELAY_MS))
+      }
+    }
+    return results
+  }, [])
+
   // TAM TARAMA
   const fullScan = useCallback(async () => {
     setLoading(true)
@@ -347,42 +366,48 @@ export default function DuygyCRM({ token, onLogout }) {
       setLabelMap(stageToLabelId)
       setProgress(10)
 
-      // 2) Hem gönderilen hem alınan mailleri tara
-      const allMsgs = []
+      // 2) Önce tüm mesaj ID'lerini topla
+      const sentIds = []
+      const receivedIds = []
       let pageToken = null
-      let page = 0
 
-      // Gönderilen mailler
-      setStatusMsg('Gönderilen mailler taranıyor...')
+      // Gönderilen mesaj ID'leri
+      setStatusMsg('Gönderilen mailler listeleniyor...')
       do {
         const res = await gmailSearchMessages(token, `from:${MY_EMAIL}`, 500, pageToken)
-        const ids = res.messages || []
+        sentIds.push(...(res.messages || []))
         pageToken = res.nextPageToken
-        page++
-        setProgress(Math.min(40, 10 + page * 5))
-        setStatusMsg(`${allMsgs.length + ids.length} gönderilen mesaj...`)
-        const batch = await Promise.all(
-          ids.map(m => gmailGetMessage(token, m.id).catch(() => null))
-        )
-        allMsgs.push(...batch.filter(Boolean))
       } while (pageToken)
+      setProgress(15)
+      setStatusMsg(`${sentIds.length} gönderilen mesaj bulundu...`)
 
-      // Alınan mailler (cambly.com dışı gönderenlerden)
-      setStatusMsg('Gelen yanıtlar taranıyor...')
+      // Alınan mesaj ID'leri
+      setStatusMsg('Gelen yanıtlar listeleniyor...')
       pageToken = null
-      page = 0
       do {
         const res = await gmailSearchMessages(token, `to:${MY_EMAIL} -from:${MY_EMAIL} -from:*@cambly.com`, 500, pageToken)
-        const ids = res.messages || []
+        receivedIds.push(...(res.messages || []))
         pageToken = res.nextPageToken
-        page++
-        setProgress(Math.min(70, 40 + page * 5))
-        setStatusMsg(`${allMsgs.length + ids.length} toplam mesaj...`)
-        const batch = await Promise.all(
-          ids.map(m => gmailGetMessage(token, m.id).catch(() => null))
-        )
-        allMsgs.push(...batch.filter(Boolean))
       } while (pageToken)
+      setProgress(20)
+
+      const totalIds = sentIds.length + receivedIds.length
+      setStatusMsg(`${totalIds} mesaj bulundu, detaylar çekiliyor...`)
+
+      // 3) Mesaj detaylarını batch halinde çek
+      const allMsgs = []
+
+      const sentMsgs = await fetchMessagesBatched(token, sentIds, (count) => {
+        setProgress(20 + Math.floor((count / totalIds) * 50))
+        setStatusMsg(`${count}/${totalIds} mesaj işlendi...`)
+      })
+      allMsgs.push(...sentMsgs)
+
+      const receivedMsgs = await fetchMessagesBatched(token, receivedIds, (count) => {
+        setProgress(20 + Math.floor(((sentMsgs.length + count) / totalIds) * 50))
+        setStatusMsg(`${sentMsgs.length + count}/${totalIds} mesaj işlendi...`)
+      })
+      allMsgs.push(...receivedMsgs)
 
       setProgress(80)
       setStatusMsg('Veriler işleniyor...')
@@ -398,19 +423,24 @@ export default function DuygyCRM({ token, onLogout }) {
       saveCache({ contacts: ctcts, companies: comps, notes, labelMap: stageToLabelId })
       setProgress(90)
 
-      // Label'ları Gmail'e yaz
+      // Label'ları Gmail'e yaz (throttled)
       if (labelWriteQueue.length > 0) {
-        setStatusMsg(`Gmail'e ${labelWriteQueue.length} etiket yazılıyor...`)
         const allCrmLabelIds = Object.values(stageToLabelId)
         let written = 0
         const uniqueQueue = labelWriteQueue.filter((item, idx, arr) =>
           arr.findIndex(x => x.threadId === item.threadId) === idx
         )
-        for (const { threadId, labelId } of uniqueQueue) {
+        setStatusMsg(`Gmail'e ${uniqueQueue.length} etiket yazılıyor...`)
+        for (let i = 0; i < uniqueQueue.length; i++) {
+          const { threadId, labelId } = uniqueQueue[i]
           try {
             await gmailModifyThread(token, threadId, [labelId], allCrmLabelIds.filter(id => id !== labelId))
             written++
           } catch (e) { /* sessizce devam */ }
+          if (i % 10 === 9) {
+            await new Promise(r => setTimeout(r, 300))
+            setStatusMsg(`${written}/${uniqueQueue.length} etiket yazıldı...`)
+          }
         }
         setStatusMsg(`✓ ${ctcts.length} kişi — ${written} etiket yazıldı`)
       } else {
@@ -424,7 +454,7 @@ export default function DuygyCRM({ token, onLogout }) {
       setLoading(false)
       setTimeout(() => setProgress(0), 2000)
     }
-  }, [token, buildData, buildCompanies, notes, onLogout])
+  }, [token, buildData, buildCompanies, fetchMessagesBatched, notes, onLogout])
 
   // DELTA SYNC (son 48 saat)
   const deltaSync = useCallback(async () => {
