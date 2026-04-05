@@ -537,6 +537,7 @@ export default function DuygyCRM({ token, onLogout }) {
   const [lastSync, setLastSync]     = useState(null)
   const [searchQ, setSearchQ]       = useState('')
   const [selCompanies, setSelCompanies] = useState(new Set())
+  const [companyStageFilter, setCompanyStageFilter] = useState('all')
   const [notes, setNotes]           = useState({})
   const [labelMap, setLabelMap]     = useState(null)
   const [gmailDd, setGmailDd]      = useState(false)
@@ -1053,10 +1054,10 @@ export default function DuygyCRM({ token, onLogout }) {
 
       <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 28px' }}>
         {tab === 'Dashboard'  && <DashboardPage contacts={contacts} stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} changeStage={changeStage} onNavigate={setTab} />}
-        {tab === 'Pipeline'   && <PipelinePage contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
+        {tab === 'Pipeline'   && <PipelinePage contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} changeStage={changeStage} updateContactInfo={updateContactInfo} onNavigateCompanies={(stage) => { setCompanyStageFilter(stage); setTab('Companies') }} />}
         {tab === 'Daily'      && <DailyPage contacts={contacts} overdue={overdue} />}
-        {tab === 'Companies'  && <CompaniesPage companies={companies} selCompanies={selCompanies} setSelCompanies={setSelCompanies} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} />}
-        {tab === 'Performans' && <PerformansPage contacts={contacts} stats={stats} />}
+        {tab === 'Companies'  && <CompaniesPage companies={companies} selCompanies={selCompanies} setSelCompanies={setSelCompanies} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} initialStageFilter={companyStageFilter} setInitialStageFilter={setCompanyStageFilter} />}
+        {tab === 'Performans' && <PerformansPage contacts={contacts} stats={stats} companies={companies} />}
       </main>
     </div>
   )
@@ -1310,7 +1311,10 @@ function PipelineStageDetail({ stage, onClose, changeStage, onClickDetail, showL
   )
 }
 
-function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContactInfo }) {
+const ACTIVE_STAGES = ['reached_out','follow_up_1','follow_up_2','needs_reply','interested','referral_received','processing_meeting','meeting_scheduled','meeting_held']
+const CLOSED_STAGES = ['reschedule','no_answer','not_interested','bounce','wrong_person','out_of_office','competitor','spam']
+
+function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContactInfo, onNavigateCompanies }) {
   const [channel, setChannel] = useState('Email')
   const [period, setPeriod] = useState('Tümü')
   const [startDate, setStartDate] = useState('2026-03-01')
@@ -1343,26 +1347,47 @@ function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContac
         <input style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit', background: C.white, outline: 'none', color: C.text, width: 220 }} placeholder="Kişi, şirket ara..." value={searchQ} onChange={e => setSearchQ(e.target.value)} />
       </div>
 
-      {/* Stage Kartları */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
-        {stageGroups.map((s) => {
+      {/* Aktif Stage Kartları */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10 }}>
+        {stageGroups.filter(s => ACTIVE_STAGES.includes(s.key)).map((s) => {
           const isSelected = selectedStage === s.key
           return (
-            <div key={s.key} onClick={() => { setSelectedStage(isSelected ? null : s.key); setShowLimit(20) }} style={{
-              background: C.white, borderRadius: 10,
-              border: `1.5px solid ${isSelected ? C.text : C.border}`,
-              cursor: 'pointer', padding: '16px 18px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              transition: 'border-color 0.12s'
-            }}
+            <div key={s.key} style={{ background: C.white, borderRadius: 10, border: `1.5px solid ${isSelected ? C.text : C.border}`, cursor: 'pointer', padding: '16px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'border-color 0.12s' }}
+              onClick={() => { setSelectedStage(isSelected ? null : s.key); setShowLimit(20) }}
               onMouseEnter={e => { if (!isSelected) e.currentTarget.style.borderColor = C.muted }}
-              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.borderColor = C.border }}
-            >
+              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.borderColor = C.border }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 4, height: 20, borderRadius: 2, background: s.color }} />
                 <span style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</span>
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <div style={{ textAlign: 'right', cursor: 'default' }} onClick={(e) => { e.stopPropagation(); onNavigateCompanies(s.key) }} title="Companies'e git">
+                <div style={{ fontSize: 22, fontWeight: 600, color: s.companyCount > 0 ? C.text : C.muted }}>{s.companyCount}</div>
+                <div style={{ fontSize: 10, color: C.muted }}>{s.count} kişi</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Kapalı / Pasif */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 10px', color: C.muted }}>
+        <div style={{ flex: 1, height: 1, background: C.border }} />
+        <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.04em' }}>Kapalı / Pasif</span>
+        <div style={{ flex: 1, height: 1, background: C.border }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+        {stageGroups.filter(s => CLOSED_STAGES.includes(s.key)).map((s) => {
+          const isSelected = selectedStage === s.key
+          return (
+            <div key={s.key} style={{ background: C.bg2, borderRadius: 10, border: `1.5px solid ${isSelected ? C.text : C.border}`, cursor: 'pointer', padding: '16px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'border-color 0.12s', opacity: 0.8 }}
+              onClick={() => { setSelectedStage(isSelected ? null : s.key); setShowLimit(20) }}
+              onMouseEnter={e => { if (!isSelected) e.currentTarget.style.borderColor = C.muted }}
+              onMouseLeave={e => { if (!isSelected) e.currentTarget.style.borderColor = C.border }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 4, height: 20, borderRadius: 2, background: s.color }} />
+                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</span>
+              </div>
+              <div style={{ textAlign: 'right', cursor: 'default' }} onClick={(e) => { e.stopPropagation(); onNavigateCompanies(s.key) }} title="Companies'e git">
                 <div style={{ fontSize: 22, fontWeight: 600, color: s.companyCount > 0 ? C.text : C.muted }}>{s.companyCount}</div>
                 <div style={{ fontSize: 10, color: C.muted }}>{s.count} kişi</div>
               </div>
@@ -1521,14 +1546,22 @@ function DailyPage({ contacts, overdue }) {
 
 // ═══════════════ COMPANIES ═══════════════
 
-function CompaniesPage({ companies, selCompanies, setSelCompanies, notes, setNotes, changeStage, updateContactInfo }) {
+function CompaniesPage({ companies, selCompanies, setSelCompanies, notes, setNotes, changeStage, updateContactInfo, initialStageFilter, setInitialStageFilter }) {
   const [search, setSearch] = useState('')
   const [detailCompany, setDetailCompany] = useState(null)
   const [detailEmail, setDetailEmail] = useState(null)
   const [period, setPeriod] = useState('Tümü')
   const [startDate, setStartDate] = useState('2026-03-01')
   const [endDate, setEndDate] = useState('2026-04-04')
-  const [stageFilter, setStageFilter] = useState('all')
+  const [stageFilter, setStageFilter] = useState(initialStageFilter || 'all')
+
+  // Pipeline'dan gelen stage filtresi
+  useEffect(() => {
+    if (initialStageFilter && initialStageFilter !== 'all') {
+      setStageFilter(initialStageFilter)
+      setInitialStageFilter('all')
+    }
+  }, [initialStageFilter, setInitialStageFilter])
   const { sortKey, sortDir, toggle, sortFn } = useSortable('date', 'desc')
 
   const compGetters = {
@@ -1696,10 +1729,26 @@ function CompaniesPage({ companies, selCompanies, setSelCompanies, notes, setNot
 
 // ═══════════════ PERFORMANS ═══════════════
 
-function PerformansPage({ contacts, stats }) {
+function PerformansPage({ contacts, stats, companies }) {
   const [period, setPeriod] = useState('Bu Hafta')
   const [startDate, setStartDate] = useState('2026-03-01')
   const [endDate, setEndDate] = useState('2026-04-04')
+  const [meetingSources, setMeetingSources] = useState({})
+
+  useEffect(() => {
+    fetch('/api/companies-info').then(r => r.json()).then(rows => {
+      const counts = {}
+      MEETING_SOURCES.forEach(s => { counts[s] = 0 })
+      counts['Belirtilmemiş'] = 0
+      rows.forEach(r => {
+        if (r.pipeline_stage === 'Meeting Held' || Object.values(companies).find(c => c.name === r.name && c.stage === 'meeting_held')) {
+          if (r.meeting_source && MEETING_SOURCES.includes(r.meeting_source)) counts[r.meeting_source]++
+          else counts['Belirtilmemiş']++
+        }
+      })
+      setMeetingSources(counts)
+    }).catch(() => {})
+  }, [companies])
 
   const fc = useMemo(() => filterByDate(contacts, period, startDate, endDate), [contacts, period, startDate, endDate])
 
@@ -1787,6 +1836,28 @@ function PerformansPage({ contacts, stats }) {
         </div>
       </Card>
 
+      {/* Kanal Bazlı Meeting Dağılımı */}
+      <Card style={{ marginTop: 16 }}>
+        <CardHeader title="Kanal Bazlı Meeting Dağılımı" />
+        <div style={{ padding: '8px 0' }}>
+          {Object.entries(meetingSources).filter(([,v]) => v > 0).map(([source, count]) => {
+            const total = Object.values(meetingSources).reduce((a,b) => a+b, 0) || 1
+            return (
+              <div key={source} style={{ padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, minWidth: 160 }}>{source}</span>
+                <div style={{ flex: 1, height: 6, background: C.bg2, borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(count/total)*100}%`, background: '#10B981', borderRadius: 3 }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 600, minWidth: 24, textAlign: 'right' }}>{count}</span>
+              </div>
+            )
+          })}
+          {Object.values(meetingSources).every(v => v === 0) && (
+            <div style={{ padding: '8px 16px', fontSize: 12, color: C.muted }}>Henüz meeting kaynağı verisi yok</div>
+          )}
+        </div>
+      </Card>
+
       {/* Trend */}
       <Card style={{ marginTop: 16 }}>
         <CardHeader title="Trend Çizgisi" right={<span style={{ fontSize: 10.5, color: C.muted }}>Son 8 Hafta</span>} />
@@ -1837,7 +1908,10 @@ function ContactDetailModal({ email, onClose, onSave }) {
       .catch(() => setInfo(null))
   }, [email])
 
+  const [linkedinError, setLinkedinError] = useState(false)
+
   const save = async () => {
+    if (form.linkedin && !isValidLinkedin(form.linkedin)) { setLinkedinError(true); return }
     setSaving(true)
     await fetch('/api/contacts-info', {
       method: 'POST',
@@ -1847,6 +1921,7 @@ function ContactDetailModal({ email, onClose, onSave }) {
     setInfo(form)
     setEditing(false)
     setSaving(false)
+    setLinkedinError(false)
     if (onSave) onSave(email, { name: form.name, company: form.company })
   }
 
@@ -1894,6 +1969,11 @@ function ContactDetailModal({ email, onClose, onSave }) {
                   <div style={MS.fieldLabel}>{label}</div>
                   {key === 'notes' ? (
                     <textarea style={MS.textarea} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                  ) : key === 'linkedin' ? (
+                    <>
+                      <input style={{ ...MS.input, borderColor: linkedinError ? '#EF4444' : undefined }} value={form[key] || ''} placeholder="https://linkedin.com/in/..." onChange={e => { setForm(p => ({ ...p, [key]: e.target.value })); setLinkedinError(false) }} />
+                      {linkedinError && <div style={{ fontSize: 10, color: '#EF4444', marginTop: 2 }}>Geçerli bir LinkedIn URL'si girin</div>}
+                    </>
                   ) : (
                     <input style={MS.input} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
                   )}
@@ -1913,14 +1993,21 @@ function ContactDetailModal({ email, onClose, onSave }) {
 
 // ═══════════════ ŞİRKET DETAY MODAL ═══════════════
 
+const MEETING_SOURCES = ['LinkedIn Outbound', 'Email Outbound', 'Smartlead Kampanyası', 'Referans / Inbound', 'Diğer']
+const HANDOFF_FIELDS = ['Dönüş Alan Mail', 'Yan Hak Paketleri', 'Geçmiş Şirketler (Partner Kontrolü)', 'Title & LinkedIn', 'Sustainable Reports', 'Org Chart (HR Yapısı)']
+const WARMTH_OPTIONS = ['Sıcak', 'Nötr', 'Soğuk']
+const WARMTH_COLORS = { 'Sıcak': '#EF4444', 'Nötr': '#F59E0B', 'Soğuk': '#3B82F6' }
+
+const isValidLinkedin = (val) => !val || val.includes('linkedin.com')
+
 function CompanyDetailModal({ companyName, onClose }) {
   const [info, setInfo] = useState(null)
   const [contacts, setContacts] = useState([])
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+  const [linkedinError, setLinkedinError] = useState(false)
 
-  // ESC tuşu ile kapat
   useEffect(() => {
     const handleEsc = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handleEsc)
@@ -1932,9 +2019,12 @@ function CompanyDetailModal({ companyName, onClose }) {
     fetch(`/api/companies-info?name=${encodeURIComponent(companyName)}`)
       .then(r => r.json())
       .then(rows => {
-        if (rows.length > 0) { setInfo(rows[0]); setForm(rows[0]) }
-        else {
-          const blank = { id: '', name: companyName, sector: '', campaign: '', pipeline_stage: '', website: '', linkedin: '', result_summary: '', notes: '' }
+        if (rows.length > 0) {
+          const row = rows[0]
+          if (typeof row.handoff_notes === 'string') try { row.handoff_notes = JSON.parse(row.handoff_notes) } catch { row.handoff_notes = {} }
+          setInfo(row); setForm(row)
+        } else {
+          const blank = { id: '', name: companyName, sector: '', campaign: '', pipeline_stage: '', website: '', linkedin: '', result_summary: '', notes: '', meeting_source: '', handoff_notes: {}, follow_up_date: '' }
           setInfo(null); setForm(blank); setEditing(true)
         }
       })
@@ -1943,22 +2033,41 @@ function CompanyDetailModal({ companyName, onClose }) {
   }, [companyName])
 
   const save = async () => {
+    if (form.linkedin && !isValidLinkedin(form.linkedin)) { setLinkedinError(true); return }
     setSaving(true)
     await fetch('/api/companies-info', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     })
-    setInfo(form); setEditing(false); setSaving(false)
+    setInfo(form); setEditing(false); setSaving(false); setLinkedinError(false)
+  }
+
+  const updateContactField = async (contactId, field, value) => {
+    const c = contacts.find(x => x.id === contactId)
+    if (!c) return
+    const updated = { ...c, [field]: value }
+    setContacts(prev => prev.map(x => x.id === contactId ? updated : x))
+    await fetch('/api/contacts-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    })
   }
 
   if (!companyName) return null
+
+  const isMeetingHeld = form.pipeline_stage === 'Meeting Held' || info?.pipeline_stage === 'Meeting Held'
+  const handoff = form.handoff_notes || {}
+  const handoffFilled = HANDOFF_FIELDS.filter(f => handoff[f]?.trim()).length
+  const handoffReady = handoffFilled === HANDOFF_FIELDS.length
 
   const fields = [
     ['name', 'Şirket Adı'], ['sector', 'Sektör'], ['campaign', 'Kampanya'],
     ['pipeline_stage', 'Pipeline Stage'], ['has_reply', 'Yanıt'],
     ['first_contact', 'İlk İletişim'], ['last_contact', 'Son İletişim'],
     ['website', 'Website'], ['linkedin', 'LinkedIn'],
+    ['meeting_source', 'Meeting Kaynağı'],
     ['result_summary', 'Sonuç'], ['notes', 'Not'],
   ]
 
@@ -1966,7 +2075,10 @@ function CompanyDetailModal({ companyName, onClose }) {
     <div style={MS.overlay} onClick={onClose}>
       <div style={{ ...MS.modal, maxWidth: 600 }} onClick={e => e.stopPropagation()}>
         <div style={MS.header}>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{companyName}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>{companyName}</span>
+            {handoffReady && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#E1F5EE', color: '#0F6E56', fontWeight: 500 }}>Handoff Hazır ✓</span>}
+          </div>
           <button style={MS.closeBtn} onClick={onClose}>✕</button>
         </div>
 
@@ -1996,6 +2108,16 @@ function CompanyDetailModal({ companyName, onClose }) {
                   <div style={MS.fieldLabel}>{label}</div>
                   {key === 'notes' ? (
                     <textarea style={MS.textarea} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                  ) : key === 'meeting_source' ? (
+                    <select style={MS.input} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}>
+                      <option value="">Seçiniz...</option>
+                      {MEETING_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  ) : key === 'linkedin' ? (
+                    <>
+                      <input style={{ ...MS.input, borderColor: linkedinError ? '#EF4444' : undefined }} value={form[key] || ''} placeholder="https://linkedin.com/company/..." onChange={e => { setForm(p => ({ ...p, [key]: e.target.value })); setLinkedinError(false) }} />
+                      {linkedinError && <div style={{ fontSize: 10, color: '#EF4444', marginTop: 2 }}>Geçerli bir LinkedIn URL'si girin (linkedin.com içermeli)</div>}
+                    </>
                   ) : (
                     <input style={MS.input} value={form[key] || ''} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
                   )}
@@ -2004,22 +2126,59 @@ function CompanyDetailModal({ companyName, onClose }) {
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: C.text, color: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }} onClick={save} disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
-              <button style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => { setForm(info || {}); setEditing(false) }}>İptal</button>
+              <button style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.white, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => { setForm(info || {}); setEditing(false); setLinkedinError(false) }}>İptal</button>
             </div>
           </>
         )}
 
+        {/* Handoff Notu — Meeting Held şirketler için */}
+        {isMeetingHeld && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Handoff Notu</span>
+              <span style={{ fontSize: 10, color: C.muted }}>{handoffFilled}/{HANDOFF_FIELDS.length}</span>
+            </div>
+            {HANDOFF_FIELDS.map(f => (
+              <div key={f} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>{f}:</div>
+                <input style={MS.input} value={handoff[f] || ''} placeholder={f + '...'} onChange={e => {
+                  const updated = { ...form, handoff_notes: { ...handoff, [f]: e.target.value } }
+                  setForm(updated)
+                  // Otomatik kaydet
+                  fetch('/api/companies-info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) })
+                }} />
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Kişiler */}
         {contacts.length > 0 && (
           <>
             <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 20, marginBottom: 10 }}>Kişiler ({contacts.length})</div>
             {contacts.map(c => (
-              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: `1px solid ${C.bg2}`, fontSize: 13 }}>
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${C.bg2}`, fontSize: 13 }}>
                 <div style={{ width: 26, height: 26, borderRadius: '50%', background: C.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: '#6B5C4C', flexShrink: 0 }}>{initials(c.name)}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 500 }}>{c.name}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontWeight: 500 }}>{c.name}</span>
+                    {/* Sıcaklık badge */}
+                    <span onClick={() => {
+                      const idx = WARMTH_OPTIONS.indexOf(c.warmth || 'Nötr')
+                      const next = WARMTH_OPTIONS[(idx + 1) % WARMTH_OPTIONS.length]
+                      updateContactField(c.id, 'warmth', next)
+                    }} style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: (WARMTH_COLORS[c.warmth] || '#F59E0B') + '20', color: WARMTH_COLORS[c.warmth] || '#F59E0B', fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}>
+                      {c.warmth || 'Nötr'}
+                    </span>
+                  </div>
                   <div style={{ fontSize: 11, color: C.muted }}>{c.title}</div>
+                  {/* Kısa not */}
+                  <input style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 10.5, color: C.muted, outline: 'none', padding: '2px 0', fontFamily: 'inherit' }}
+                    placeholder="Kısa not ekle..."
+                    value={c.quick_note || ''}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => updateContactField(c.id, 'quick_note', e.target.value)} />
                 </div>
-                <div style={{ fontSize: 11, color: C.muted }}>{c.status}</div>
               </div>
             ))}
           </>

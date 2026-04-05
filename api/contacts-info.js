@@ -31,13 +31,15 @@ export default async function handler(req, res) {
         INSERT INTO contacts_info (
           id, name, email, company, title, linkedin,
           campaign, first_email, emails_sent, last_email,
-          reply_status, pipeline_stage, source, notes, updated_at
+          reply_status, pipeline_stage, source, notes,
+          warmth, quick_note, updated_at
         ) VALUES (
           ${id}, ${c.name || null}, ${c.email || null}, ${c.company || null},
           ${c.title || null}, ${c.linkedin || null}, ${c.campaign || null},
           ${c.first_email || null}, ${c.emails_sent || 0}, ${c.last_email || null},
           ${c.reply_status || null}, ${c.pipeline_stage || null},
-          ${c.source || 'Manual'}, ${c.notes || null}, NOW()
+          ${c.source || 'Manual'}, ${c.notes || null},
+          ${c.warmth || null}, ${c.quick_note || null}, NOW()
         )
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name, email = EXCLUDED.email,
@@ -46,7 +48,9 @@ export default async function handler(req, res) {
           first_email = EXCLUDED.first_email, emails_sent = EXCLUDED.emails_sent,
           last_email = EXCLUDED.last_email, reply_status = EXCLUDED.reply_status,
           pipeline_stage = EXCLUDED.pipeline_stage,
-          notes = EXCLUDED.notes, updated_at = NOW()
+          notes = EXCLUDED.notes,
+          warmth = EXCLUDED.warmth, quick_note = EXCLUDED.quick_note,
+          updated_at = NOW()
       `
       return res.status(200).json({ ok: true, id })
     } catch (err) {

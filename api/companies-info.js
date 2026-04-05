@@ -29,14 +29,18 @@ export default async function handler(req, res) {
         INSERT INTO companies_info (
           id, name, sector, campaign, contacts_gmail, contacts_report,
           first_contact, last_contact, has_reply, pipeline_stage,
-          website, linkedin, result_summary, notes, updated_at
+          website, linkedin, result_summary, notes,
+          meeting_source, handoff_notes, follow_up_date, updated_at
         ) VALUES (
           ${id}, ${c.name}, ${c.sector || null}, ${c.campaign || null},
           ${c.contacts_gmail || 0}, ${c.contacts_report || 0},
           ${c.first_contact || null}, ${c.last_contact || null},
           ${c.has_reply || null}, ${c.pipeline_stage || null},
           ${c.website || null}, ${c.linkedin || null},
-          ${c.result_summary || null}, ${c.notes || null}, NOW()
+          ${c.result_summary || null}, ${c.notes || null},
+          ${c.meeting_source || null},
+          ${c.handoff_notes ? JSON.stringify(c.handoff_notes) : null},
+          ${c.follow_up_date || null}, NOW()
         )
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name, sector = EXCLUDED.sector,
@@ -46,6 +50,9 @@ export default async function handler(req, res) {
           has_reply = EXCLUDED.has_reply, pipeline_stage = EXCLUDED.pipeline_stage,
           website = EXCLUDED.website, linkedin = EXCLUDED.linkedin,
           result_summary = EXCLUDED.result_summary, notes = EXCLUDED.notes,
+          meeting_source = EXCLUDED.meeting_source,
+          handoff_notes = EXCLUDED.handoff_notes,
+          follow_up_date = EXCLUDED.follow_up_date,
           updated_at = NOW()
       `
       return res.status(200).json({ ok: true, id })
