@@ -42,10 +42,9 @@ const STAGE_META = {
 }
 
 // Excel stage → sistem stage eşleştirmesi
-// Excel → sistem stage eşleştirmesi
-// "no answer" hariç — Gmail classifier reached_out/follow_up_1/follow_up_2/no_answer
-// ayrımını gönderim sayısına göre zaten yapıyor, Excel'in genel "No Answer"ı bunu ezmemeli.
+// Excel stage → sistem stage eşleştirmesi (geçmiş veriler için)
 const EXCEL_STAGE_MAP = {
+  'no answer':                       'no_answer',
   'meeting held':                    'meeting_held',
   'meeting scheduled':               'meeting_scheduled',
   'competitor':                      'competitor',
@@ -610,7 +609,6 @@ export default function DuygyCRM({ token, onLogout }) {
                 fixed++
               }
               if (info.name) c.name = info.name
-              // Excel pipeline_stage → sistem stage eşleştirmesi
               if (info.pipeline_stage) {
                 const mapped = EXCEL_STAGE_MAP[info.pipeline_stage.toLowerCase()]
                 if (mapped && c.stage !== mapped) { c.stage = mapped; fixed++ }
@@ -871,7 +869,6 @@ export default function DuygyCRM({ token, onLogout }) {
             // Tam email eşleşmesi — en güvenilir
             if (info.name) c.name = info.name
             if (info.company) c.company = info.company
-            // Excel'deki pipeline_stage varsa ve eşleşiyorsa kullan
             if (info.pipeline_stage) {
               const mapped = EXCEL_STAGE_MAP[info.pipeline_stage.toLowerCase()]
               if (mapped) c.stage = mapped
@@ -1815,6 +1812,13 @@ function ContactDetailModal({ email, onClose, onSave }) {
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
 
+  // ESC tuşu ile kapat
+  useEffect(() => {
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [onClose])
+
   useEffect(() => {
     if (!email) return
     fetch(`/api/contacts-info?email=${encodeURIComponent(email)}`)
@@ -1915,6 +1919,13 @@ function CompanyDetailModal({ companyName, onClose }) {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+
+  // ESC tuşu ile kapat
+  useEffect(() => {
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [onClose])
 
   useEffect(() => {
     if (!companyName) return
