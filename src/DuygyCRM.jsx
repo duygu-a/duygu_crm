@@ -6,6 +6,7 @@ import {
   gmailModifyThread,
   gmailGetProfile,
   ensureCrmLabels,
+  isOutreachThread,
 } from './useGmail'
 import {
   MY_EMAIL, CACHE_KEY, CACHE_VER,
@@ -438,7 +439,11 @@ export default function DuygyCRM({ token, onLogout }) {
         stage = classifyContact(c)
       }
 
-      if (!fromLabel && c.threadId && stageToLabelId[stage]) {
+      // Label yazma: sadece gerçek outreach thread'lere yaz
+      // sentCount > 0 = biz mail göndermişiz (noise değil)
+      // @cambly.com olmayan kişilere = internal değil
+      const isRealOutreach = c.sentCount > 0 && !c.email.endsWith('@cambly.com')
+      if (!fromLabel && c.threadId && stageToLabelId[stage] && isRealOutreach) {
         labelWriteQueue.push({ threadId: c.threadId, labelId: stageToLabelId[stage] })
       }
 
@@ -603,9 +608,22 @@ export default function DuygyCRM({ token, onLogout }) {
       if (labelWriteQueue.length > 0) {
         const allCrmLabelIds = Object.values(stageToLabelId)
         let written = 0
-        const uniqueQueue = labelWriteQueue.filter((item, idx, arr) =>
-          arr.findIndex(x => x.threadId === item.threadId) === idx
-        )
+
+        // Thread bazlı outreach kontrolü — noise thread'lere label yazma
+        const threadMsgMap = {}
+        allMsgs.forEach(msg => {
+          if (msg.threadId) {
+            if (!threadMsgMap[msg.threadId]) threadMsgMap[msg.threadId] = []
+            threadMsgMap[msg.threadId].push(msg)
+          }
+        })
+
+        const uniqueQueue = labelWriteQueue
+          .filter((item, idx, arr) => arr.findIndex(x => x.threadId === item.threadId) === idx)
+          .filter(item => {
+            const threadMsgs = threadMsgMap[item.threadId]
+            return threadMsgs ? isOutreachThread(threadMsgs) : false
+          })
         setStatusMsg(`Gmail'e ${uniqueQueue.length} etiket yazılıyor...`)
         for (let i = 0; i < uniqueQueue.length; i++) {
           const { threadId, labelId } = uniqueQueue[i]

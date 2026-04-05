@@ -113,6 +113,38 @@ export async function gmailGetProfile(token) {
   return gmailFetch('profile', token)
 }
 
+// ── Outreach Thread Kontrolü ─────────────────────────────────
+// Bir thread'in gerçek outreach olup olmadığını belirler.
+// Sadece duygu@cambly.com'dan external (cambly dışı) kişilere gönderilen
+// VE noise/system sender olmayan thread'ler outreach sayılır.
+export function isOutreachThread(messages) {
+  const INTERNAL = ['duygu@cambly.com', 'batuhan@cambly.com', 'tugba@cambly.com']
+  const NOISE_SENDERS = [
+    'noreply', 'no-reply', 'no_reply', 'mailer-daemon', 'postmaster',
+    'notifications', 'notification', 'calendar-notification', 'meetings-noreply',
+    'instapage.com', 'hubspot.com', 'google.com', 'googlemail.com',
+    'vercel.com', 'slack.com', 'openai.com', 'anthropic.com',
+    'zoom.us', 'sellbetter', 'apollo.io', 'streak.com', 'theorg.com',
+    'mixmax.com', 'superhuman.com', 'intercom.io', 'intercom-mail.com',
+    'mailchimp.com', 'sendgrid.net', 'amazonses.com',
+    'smartlead.ai', 'instantly.ai', 'outreach.io',
+    'calendly.com', 'loom.com', 'grammarly.com', 'canva.com',
+    'figma.com', 'notion.so', 'github.com', 'linkedin.com',
+  ]
+
+  return messages.some(msg => {
+    const headers = msg.payload?.headers || []
+    const from = (headers.find(h => h.name === 'From')?.value || '').toLowerCase()
+    const to   = (headers.find(h => h.name === 'To')?.value || '').toLowerCase()
+
+    const sentByMe    = from.includes('duygu@cambly.com')
+    const notInternal = !INTERNAL.some(addr => to.includes(addr))
+    const notNoise    = !NOISE_SENDERS.some(n => from.includes(n))
+
+    return sentByMe && notInternal && notNoise
+  })
+}
+
 // Label oluştur (yoksa)
 export async function gmailCreateLabel(token, name) {
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {

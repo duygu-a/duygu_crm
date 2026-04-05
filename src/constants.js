@@ -77,6 +77,9 @@ export const IGNORED_DOMAINS = [
   'smartlead.ai', 'instantly.ai', 'apollo.io', 'outreach.io',
   'calendly.com', 'loom.com', 'grammarly.com', 'canva.com',
   'claude.ai', 'anthropic.com',
+  // Ek noise kaynakları
+  'openai.com', 'sellbetter.xyz', 'streak.com', 'theorg.com',
+  'gong.io', 'vidyard.com', 'drift.com',
 ]
 
 export const IGNORED_PREFIXES = [
