@@ -80,6 +80,9 @@ export const IGNORED_DOMAINS = [
   // Ek noise kaynakları
   'openai.com', 'sellbetter.xyz', 'streak.com', 'theorg.com',
   'gong.io', 'vidyard.com', 'drift.com',
+  // CRM / SaaS bildirim mailleri
+  'pipelinecrm.com', 'close.com', 'pipedrive.com', 'freshsales.io',
+  'woodpecker.co', 'lemlist.com', 'reply.io',
 ]
 
 export const IGNORED_PREFIXES = [

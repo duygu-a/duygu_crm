@@ -135,15 +135,13 @@ export default function InboxPage({ contacts, onNavigateDetail }) {
               </div>
 
               {/* Lead + Kişi */}
-              <div style={{ width: 200, flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>{item.lead}</span>
-                </div>
-                <div style={{ fontSize: 11, color: C.muted }}>{item.contact}</div>
+              <div style={{ minWidth: 140, maxWidth: 200, flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.lead}</div>
+                <div style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.contact}</div>
               </div>
 
               {/* Görev açıklaması */}
-              <div style={{ flex: 1, fontSize: 12.5, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ flex: 1, fontSize: 12.5, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                 {item.task}
               </div>
 
@@ -154,13 +152,14 @@ export default function InboxPage({ contacts, onNavigateDetail }) {
 
               {/* Status badge */}
               <span style={{
-                fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
                 background: meta.color + '18', color: meta.color,
-                textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0,
+                textTransform: 'uppercase', letterSpacing: '0.02em', flexShrink: 0,
+                whiteSpace: 'nowrap',
               }}>{meta.label}</span>
 
               {/* Tarih */}
-              <span style={{ fontSize: 11, color: C.muted, flexShrink: 0, minWidth: 50, textAlign: 'right' }}>{fmtDate(item.date)}</span>
+              <span style={{ fontSize: 11, color: C.muted, flexShrink: 0, minWidth: 55, textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtDate(item.date)}</span>
             </div>
           )
         })}
