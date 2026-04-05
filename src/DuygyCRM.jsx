@@ -7,350 +7,58 @@ import {
   gmailGetProfile,
   ensureCrmLabels,
 } from './useGmail'
+import {
+  MY_EMAIL, CACHE_KEY, CACHE_VER,
+  ALL_STAGES, STAGE_META, ACTIVE_STAGES, CLOSED_STAGES,
+  EXCEL_STAGE_MAP, PIPELINE_STAGES, KPI,
+  MEETING_SOURCES, HANDOFF_FIELDS, WARMTH_OPTIONS, WARMTH_COLORS,
+  C, MS, isValidLinkedin,
+} from './constants'
+import {
+  hdr, getDomain, companyName, daysSince, fmtDate, initials,
+  stageFromLabels, isIgnoredEmail, businessDaysSince,
+  filterByDate, classifyContact, extractName,
+} from './helpers'
+import {
+  dbSaveContacts, dbLoadContacts, dbSaveNotes, dbLoadNotes,
+  dbSaveLabelMap, dbLoadLabelMap, loadCache, saveCache,
+} from './db'
+import Sidebar from './components/Sidebar'
+import Header from './components/Header'
+import LeadsPage from './pages/LeadsPage'
+import ContactsPage from './pages/ContactsPage'
+import LeadDetailPage from './pages/LeadDetailPage'
+import PipelineKanban from './pages/PipelineKanban'
+import InboxPage from './pages/InboxPage'
+import ReportsPage from './pages/ReportsPage'
+import WorkflowsPage from './pages/WorkflowsPage'
+import ActivitiesPage from './pages/ActivitiesPage'
+import ConversationsPage from './pages/ConversationsPage'
 
-// ── SABİTLER ──────────────────────────────────────────────────
-const MY_EMAIL   = 'duygu@cambly.com'
-const CACHE_KEY  = 'duygu_crm_v5_data'
-const CACHE_VER  = 5
-
-const ALL_STAGES = [
-  'reached_out','follow_up_1','follow_up_2','needs_reply',
-  'interested','referral_received',
-  'processing_meeting','meeting_scheduled','meeting_held','reschedule',
-  'no_answer','not_interested','bounce','wrong_person',
-  'out_of_office','competitor','spam',
-]
-
-const STAGE_META = {
-  reached_out:        { label: 'Reached Out',         color: '#6B7280' },
-  follow_up_1:        { label: '1. Follow Up',         color: '#8B5CF6' },
-  follow_up_2:        { label: '2. Follow Up',         color: '#7C3AED' },
-  needs_reply:        { label: 'Needs Reply',          color: '#F59E0B' },
-  interested:         { label: 'Interested',           color: '#0EA5E9' },
-  referral_received:  { label: 'Referral Received',    color: '#14B8A6' },
-  processing_meeting: { label: 'Processing - Meeting', color: '#3B82F6' },
-  meeting_scheduled:  { label: 'Meeting Scheduled',    color: '#10B981' },
-  meeting_held:       { label: 'Meeting Held',         color: '#059669' },
-  reschedule:         { label: 'Reschedule',           color: '#F97316' },
-  no_answer:          { label: 'No Answer',            color: '#9CA3AF' },
-  not_interested:     { label: 'Not Interested',       color: '#EF4444' },
-  bounce:             { label: 'Bounce',               color: '#DC2626' },
-  wrong_person:       { label: 'Wrong Person',         color: '#991B1B' },
-  out_of_office:      { label: 'Out Of Office',        color: '#6366F1' },
-  competitor:         { label: 'Competitor',           color: '#DB2777' },
-  spam:               { label: 'Spam / Reklam',       color: '#78716C' },
+// ── SAYFA BAŞLIKLARI ─────────────────────────────────────────
+const PAGE_TITLES = {
+  Dashboard: 'Dashboard',
+  Pipeline: 'Pipeline',
+  Opportunities: 'Pipeline',
+  Daily: 'Daily',
+  Leads: 'Leads',
+  Companies: 'Leads',
+  Contacts: 'Contacts',
+  Performans: 'Reports',
+  Reports: 'Reports',
+  Inbox: 'Inbox',
+  Activities: 'Activities',
+  Conversations: 'Conversations',
+  Workflows: 'Workflows',
+  Settings: 'Settings',
 }
 
-// Excel stage → sistem stage eşleştirmesi
-// Excel stage → sistem stage eşleştirmesi (geçmiş veriler için)
-const EXCEL_STAGE_MAP = {
-  'no answer':                       'no_answer',
-  'meeting held':                    'meeting_held',
-  'meeting scheduled':               'meeting_scheduled',
-  'competitor':                      'competitor',
-  'ooo':                             'out_of_office',
-  'interested':                      'interested',
-  'referral received':               'referral_received',
-  'not interested':                  'not_interested',
-  'not interested (existing vendor)':'not_interested',
-  'not interested (not on agenda)':  'not_interested',
-  'not interested (wants f2f)':      'not_interested',
-  'not interested (not in yearly plan)': 'not_interested',
-}
+// (helpers moved to helpers.js, db moved to db.js, constants moved to constants.js)
 
-const PIPELINE_STAGES = ALL_STAGES
-const KPI = { meetings: 156, pipeline: 3100000 }
-const TABS = ['Dashboard', 'Pipeline', 'Daily', 'Companies', 'Performans']
+// ── İŞ GÜNÜ HESAPLAMA (eski referanslar için placeholder) ────
+// businessDaysSince artık helpers.js'den import ediliyor
 
-// ── FİLTRELENECEK DOMAİNLER (sistem/araç mailleri) ──────────
-const IGNORED_DOMAINS = [
-  'cambly.com',
-  // Google sistem
-  'google.com', 'googlemail.com', 'gmail.com',
-  // Araçlar & platformlar
-  'mixmax.com', 'vercel.com', 'github.com', 'linkedin.com',
-  'hubspot.com', 'salesforce.com', 'slack.com',
-  'notion.so', 'figma.com', 'zoom.us',
-  'theofficialboard.com',
-  // SaaS / newsletter / bildirim
-  'superhuman.com', 'instapage.com', 'intercom.io', 'intercom-mail.com',
-  'mailchimp.com', 'sendgrid.net', 'amazonses.com',
-  'smartlead.ai', 'instantly.ai', 'apollo.io', 'outreach.io',
-  'calendly.com', 'loom.com', 'grammarly.com', 'canva.com',
-  'claude.ai', 'anthropic.com',
-]
-
-// noreply/no-reply/notification/info/welcome gibi sistem adresleri
-const IGNORED_PREFIXES = [
-  'noreply', 'no-reply', 'no_reply',
-  'notifications', 'notification',
-  'mailer-daemon', 'postmaster',
-  'info@', 'welcome@', 'hello@',
-  'support@', 'team@', 'news@', 'newsletter@',
-  'onboarding@', 'updates@', 'alert@', 'alerts@',
-  'ship@', 'calendar-notification@', 'meetings-noreply@',
-]
-
-const isIgnoredEmail = (email) => {
-  if (!email) return true
-  const domain = getDomain(email)
-  const local = email.split('@')[0]
-  // Domain eşleşmesi (alt domain dahil)
-  if (IGNORED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) return true
-  // Prefix eşleşmesi (noreply, notifications, vb.)
-  if (IGNORED_PREFIXES.some(p => p.includes('@') ? email.startsWith(p) : local.includes(p))) return true
-  return false
-}
-
-// ── V5 RENK SABİTLERİ ───────────────────────────────────────
-const C = {
-  bg: '#FAF4EB', bg2: '#F5EFE6', white: '#FFFFFF',
-  border: '#E4DBD3', text: '#050500', muted: '#888',
-}
-
-// ── YARDIMCILAR ───────────────────────────────────────────────
-const hdr = (headers, name) => {
-  const h = headers?.find(h => h.name === name)
-  return h ? h.value : ''
-}
-
-const getDomain = email => {
-  const m = email?.match(/@([\w.-]+)/)
-  return m ? m[1].toLowerCase() : ''
-}
-
-const companyName = domain =>
-  domain ? domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1) : ''
-
-const daysSince = d => {
-  if (!d) return 999
-  return Math.floor((Date.now() - new Date(d).getTime()) / 86400000)
-}
-
-const fmtDate = d => {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('tr-TR', { day:'2-digit', month:'short', year:'2-digit' })
-}
-
-const initials = name =>
-  (name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-
-const stageFromLabels = (labelIds, labelToStage) => {
-  if (!labelIds || !labelToStage) return null
-  for (const id of labelIds) {
-    if (labelToStage[id]) return labelToStage[id]
-  }
-  return null
-}
-
-const classifyContact = (c) => {
-  const s = (c.snippet || '').toLowerCase()
-  const sub = (c.subject || '').toLowerCase()
-  const hasSent = c.sentCount > 0
-  const hasReply = c.receivedCount > 0
-  const daysSinceSent = businessDaysSince(c.lastSent)
-  const daysSinceReply = businessDaysSince(c.lastReceived)
-
-  if (s.includes('mailer-daemon') || s.includes('postmaster') ||
-      sub.includes('delivery status') || sub.includes('undeliverable') ||
-      sub.includes('mail delivery failed') || sub.includes('returned mail'))
-    return 'bounce'
-
-  if (sub.includes('out of office') || sub.includes('otomatik yanıt') ||
-      sub.includes('automatic reply') || sub.includes('dışarıda') ||
-      sub.includes('izinde') || s.includes('out of office') ||
-      s.includes('otomatik yanıt'))
-    return 'out_of_office'
-
-  if (hasReply && (s.includes('yanlış kişi') || s.includes('ben değilim') ||
-      s.includes('sorumlu değil') || s.includes('başka birine yönlendiriyorum')))
-    return 'wrong_person'
-
-  if (hasReply && (s.includes('ilgilenmiyoruz') || s.includes('ilgilenmiyorum') ||
-      s.includes('ihtiyacımız yok') || s.includes('gündemimizde değil') ||
-      s.includes('şu an için değil') || s.includes('not interested')))
-    return 'not_interested'
-
-  if (hasReply && (s.includes('babbel') || s.includes('duolingo') || s.includes('rosetta') ||
-      s.includes('başka bir platform') || s.includes('farklı bir çözüm')))
-    return 'competitor'
-
-  if (hasReply && (s.includes('reschedule') || s.includes('ertelemek') ||
-      s.includes('ertelememiz') || s.includes('başka bir güne')))
-    return 'reschedule'
-
-  if (s.includes('toplantı oluşturdum') || s.includes('davetiye gönderdim') ||
-      s.includes('davetiyesini paylaştı') || s.includes('için toplantı oluşturd') ||
-      (s.includes('saat') && s.includes('için') && s.includes('oluşturdum')))
-    return 'meeting_scheduled'
-
-  if (hasReply && (s.includes('müsaitlik') || s.includes('müsait misiniz') ||
-      s.includes('hangi gün') || s.includes('uygun olur mu') ||
-      s.includes('ne zaman uygun') || s.includes('saat kaçta') ||
-      s.includes('takvim')))
-    return 'processing_meeting'
-
-  if (hasReply && hasSent && new Date(c.lastReceived) > new Date(c.lastSent))
-    return 'needs_reply'
-
-  if (c.sentCount >= 3 || s.includes('birkaç kez ulaşmaya çalıştım') ||
-      s.includes('doğrudan konuya gelmek') || s.includes('son bir not'))
-    return 'follow_up_2'
-
-  if (c.sentCount === 2 || s.includes('farklı bir açıdan tekrar') ||
-      s.includes('tekrar ulaşmak istedim'))
-    return 'follow_up_1'
-
-  if (hasSent && !hasReply) {
-    if (daysSinceSent >= 5) return 'no_answer'
-    return 'reached_out'
-  }
-
-  return 'reached_out'
-}
-
-// ── DB API helpers ───────────────────────────────────────────
-const dbSaveContacts = async (contacts) => {
-  try {
-    await fetch('/api/contacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contacts }),
-    })
-  } catch (e) { console.warn('DB contacts save hatası:', e) }
-}
-
-const dbLoadContacts = async () => {
-  try {
-    const res = await fetch('/api/contacts')
-    if (!res.ok) return null
-    const rows = await res.json()
-    return rows.map(r => ({
-      email: r.email, domain: r.domain, company: r.company, name: r.name,
-      stage: r.stage, sentCount: r.sent_count, receivedCount: r.received_count,
-      lastSent: r.last_sent, lastReceived: r.last_received,
-      firstContact: r.first_contact, lastContact: r.last_contact,
-      subject: r.subject, snippet: r.snippet,
-      threadId: r.thread_id, messageCount: r.message_count,
-    }))
-  } catch (e) { console.warn('DB contacts load hatası:', e); return null }
-}
-
-const dbSaveNotes = async (domain, notes) => {
-  try {
-    await fetch('/api/notes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain, notes }),
-    })
-  } catch (e) { console.warn('DB notes save hatası:', e) }
-}
-
-const dbLoadNotes = async () => {
-  try {
-    const res = await fetch('/api/notes')
-    if (!res.ok) return {}
-    return await res.json()
-  } catch (e) { return {} }
-}
-
-const dbSaveLabelMap = async (labelMap) => {
-  try {
-    await fetch('/api/labels', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ labelMap }),
-    })
-  } catch (e) { console.warn('DB labels save hatası:', e) }
-}
-
-const dbLoadLabelMap = async () => {
-  try {
-    const res = await fetch('/api/labels')
-    if (!res.ok) return null
-    const map = await res.json()
-    return Object.keys(map).length ? map : null
-  } catch (e) { return null }
-}
-
-// ── CACHE (localStorage fallback) ────────────────────────────
-const loadCache = () => {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    if (!raw) return null
-    const d = JSON.parse(raw)
-    if (d.version !== CACHE_VER) return null
-    return d
-  } catch { return null }
-}
-
-const saveCache = data =>
-  localStorage.setItem(CACHE_KEY, JSON.stringify({ ...data, version: CACHE_VER, savedAt: Date.now() }))
-
-// ── İŞ GÜNÜ HESAPLAMA ────────────────────────────────────────
-function businessDaysSince(dateStr) {
-  if (!dateStr) return 999
-  const start = new Date(dateStr)
-  const now = new Date()
-  if (start > now) return 0
-  let count = 0
-  const d = new Date(start)
-  d.setHours(0,0,0,0)
-  const today = new Date(now)
-  today.setHours(0,0,0,0)
-  while (d < today) {
-    d.setDate(d.getDate() + 1)
-    const dow = d.getDay()
-    if (dow !== 0 && dow !== 6) count++ // Pzt-Cuma
-  }
-  return count
-}
-
-// ── TARİH FİLTRE YARDIMCISI ──────────────────────────────────
-function getDateRange(period, startDate, endDate) {
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-
-  if (period === 'Tümü') return { from: null, to: null }
-
-  if (period === 'Bugün') return { from: todayStart, to: now }
-
-  if (period === 'Bu Hafta') {
-    const dow = todayStart.getDay()
-    const monday = new Date(todayStart)
-    monday.setDate(monday.getDate() - (dow === 0 ? 6 : dow - 1))
-    return { from: monday, to: now }
-  }
-
-  if (period === 'Bu Ay') {
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    return { from: monthStart, to: now }
-  }
-
-  if (period === 'Özel Aralık' && startDate && endDate) {
-    // Lokal timezone'da parse et (UTC midnight hatasını önle)
-    const [sy, sm, sd] = startDate.split('-').map(Number)
-    const [ey, em, ed] = endDate.split('-').map(Number)
-    return { from: new Date(sy, sm - 1, sd, 0, 0, 0), to: new Date(ey, em - 1, ed, 23, 59, 59) }
-  }
-
-  return { from: null, to: null }
-}
-
-function filterByDate(items, period, startDate, endDate, dateField = 'lastContact') {
-  const { from, to } = getDateRange(period, startDate, endDate)
-  if (!from && !to) return items
-  return items.filter(item => {
-    const raw = item[dateField]
-    if (!raw) return false
-    const d = new Date(raw)
-    if (isNaN(d.getTime())) return false
-    if (from && d < from) return false
-    if (to && d > to) return false
-    return true
-  })
-}
-
+const _placeholder_removed = true // Eski kodlar kaldırıldı
 // ═══════════════ V5 SHARED COMPONENTS ═══════════════
 
 function Dropdown({ title, info, btn, onBtnClick, onClose }) {
@@ -540,8 +248,8 @@ export default function DuygyCRM({ token, onLogout }) {
   const [companyStageFilter, setCompanyStageFilter] = useState('all')
   const [notes, setNotes]           = useState({})
   const [labelMap, setLabelMap]     = useState(null)
-  const [gmailDd, setGmailDd]      = useState(false)
-  const [linkedinDd, setLinkedinDd] = useState(false)
+  // gmailDd ve linkedinDd Header bileşenine taşındı
+  const [detailLead, setDetailLead] = useState(null) // LeadDetailPage için
 
   // İlk yükleme — önce DB, yoksa localStorage fallback
   useEffect(() => {
@@ -1016,49 +724,77 @@ export default function DuygyCRM({ token, onLogout }) {
     ? `Son Tarama: ${new Date(lastSync).toLocaleDateString('tr-TR')} · ${contacts.length} Kişi`
     : (statusMsg || 'Henüz tarama yapılmadı')
 
+  // Lead Detail'e navigasyon
+  const navigateToLeadDetail = (companyName) => {
+    setDetailLead(companyName)
+    setTab('LeadDetail')
+  }
+
+  // Sidebar tab mapping — eski tab adlarını da destekle
+  const handleTabChange = (newTab) => {
+    setDetailLead(null) // Detay sayfasından çık
+    if (newTab === 'Opportunities') setTab('Pipeline')
+    else if (newTab === 'Leads') setTab('Companies')
+    else if (newTab === 'Reports') setTab('Performans')
+    else setTab(newTab)
+  }
+
+  // Aktif sidebar tab'ını belirle (ters mapping)
+  const sidebarActiveTab = tab === 'Pipeline' ? 'Opportunities'
+    : tab === 'Companies' ? 'Leads'
+    : tab === 'Performans' ? 'Reports'
+    : tab
+
+  const pageTitle = tab === 'LeadDetail' ? (detailLead || 'Lead Detail') : (PAGE_TITLES[tab] || tab)
+
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, fontFamily: "'DM Sans', sans-serif", color: C.text }}>
-      {/* HEADER */}
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', height: 54, borderBottom: `1px solid ${C.border}`, background: C.white, position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-          <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.3px' }}>Duygu CRM</span>
-          <nav style={{ display: 'flex', gap: 2 }}>
-            {TABS.map(t => (
-              <button key={t} onClick={() => setTab(t)} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: tab === t ? C.bg2 : 'transparent', color: tab === t ? C.text : C.muted, fontWeight: tab === t ? 500 : 400, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>{t}</button>
-            ))}
-          </nav>
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', position: 'relative' }}>
-          {statusMsg && <span style={{ fontSize: 11, color: C.muted, padding: '3px 8px', background: C.bg2, borderRadius: 20, marginRight: 4 }}>{statusMsg}</span>}
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => { setGmailDd(!gmailDd); setLinkedinDd(false) }} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 13, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✉</button>
-            {gmailDd && <Dropdown title="Gmail Tarama" info={syncInfo} btn={loading ? 'Taranıyor...' : 'Tam Tarama Başlat'} onBtnClick={() => { fullScan(); setGmailDd(false) }} onClose={() => setGmailDd(false)} />}
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", color: C.text }}>
+      {/* SOL SIDEBAR */}
+      <Sidebar
+        activeTab={sidebarActiveTab}
+        onTabChange={handleTabChange}
+        inboxCount={overdue.length}
+      />
+
+      {/* SAĞ ALAN */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* HEADER */}
+        <Header
+          pageTitle={pageTitle}
+          searchQ={searchQ}
+          setSearchQ={setSearchQ}
+          onFullScan={fullScan}
+          onDeltaSync={deltaSync}
+          onLogout={onLogout}
+          loading={loading}
+          statusMsg={statusMsg}
+          lastSync={lastSync}
+          contactCount={contacts.length}
+        />
+
+        {/* PROGRESS */}
+        {progress > 0 && (
+          <div style={{ height: 3, background: C.border }}>
+            <div style={{ height: '100%', background: C.text, width: progress + '%', transition: 'width 0.3s' }} />
           </div>
-          <button onClick={deltaSync} disabled={loading} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 13, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Hızlı Sync">↻</button>
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => { setLinkedinDd(!linkedinDd); setGmailDd(false) }} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>in</button>
-            {linkedinDd && <Dropdown title="LinkedIn Extension" info="Manuel Import · 4 Adımlı Workflow" btn="LinkedIn Aktar" onBtnClick={() => setLinkedinDd(false)} onClose={() => setLinkedinDd(false)} />}
-          </div>
-          <button onClick={onLogout} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, cursor: 'pointer', fontSize: 11, color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Çıkış">⏻</button>
-        </div>
-      </header>
+        )}
 
-      {(gmailDd || linkedinDd) && <div onClick={() => { setGmailDd(false); setLinkedinDd(false) }} style={{ position: 'fixed', inset: 0, zIndex: 99 }} />}
-
-      {/* PROGRESS */}
-      {progress > 0 && (
-        <div style={{ height: 3, background: C.border }}>
-          <div style={{ height: '100%', background: C.text, width: progress + '%', transition: 'width 0.3s' }} />
-        </div>
-      )}
-
-      <main style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 28px' }}>
-        {tab === 'Dashboard'  && <DashboardPage contacts={contacts} stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} changeStage={changeStage} onNavigate={setTab} />}
-        {tab === 'Pipeline'   && <PipelinePage contacts={filtered} searchQ={searchQ} setSearchQ={setSearchQ} changeStage={changeStage} updateContactInfo={updateContactInfo} onNavigateCompanies={(stage) => { setCompanyStageFilter(stage); setTab('Companies') }} />}
-        {tab === 'Daily'      && <DailyPage contacts={contacts} overdue={overdue} />}
-        {tab === 'Companies'  && <CompaniesPage companies={companies} selCompanies={selCompanies} setSelCompanies={setSelCompanies} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} initialStageFilter={companyStageFilter} setInitialStageFilter={setCompanyStageFilter} />}
-        {tab === 'Performans' && <PerformansPage contacts={contacts} stats={stats} companies={companies} />}
-      </main>
+        {/* İÇERİK */}
+        <main style={{ flex: 1, padding: '24px 28px', background: C.bg, overflowY: 'auto' }}>
+          {tab === 'Dashboard'    && <DashboardPage contacts={contacts} stats={stats} weeklyC={weeklyC} overdue={overdue} updateContactInfo={updateContactInfo} changeStage={changeStage} onNavigate={handleTabChange} />}
+          {tab === 'Pipeline'     && <PipelineKanban contacts={contacts} changeStage={changeStage} updateContactInfo={updateContactInfo} onNavigateDetail={navigateToLeadDetail} onNavigateCompanies={(stage) => { setCompanyStageFilter(stage); setTab('Companies') }} />}
+          {tab === 'Daily'        && <DailyPage contacts={contacts} overdue={overdue} />}
+          {tab === 'Companies'    && <LeadsPage companies={companies} contacts={contacts} selCompanies={selCompanies} setSelCompanies={setSelCompanies} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} onNavigateDetail={navigateToLeadDetail} initialStageFilter={companyStageFilter} setInitialStageFilter={setCompanyStageFilter} />}
+          {tab === 'Performans'   && <ReportsPage contacts={contacts} stats={stats} companies={companies} />}
+          {tab === 'Inbox'        && <InboxPage contacts={contacts} onNavigateDetail={navigateToLeadDetail} />}
+          {tab === 'Contacts'     && <ContactsPage contacts={contacts} onNavigateDetail={navigateToLeadDetail} />}
+          {tab === 'Activities'   && <ActivitiesPage />}
+          {tab === 'Conversations' && <ConversationsPage />}
+          {tab === 'Workflows'    && <WorkflowsPage />}
+          {tab === 'LeadDetail'   && <LeadDetailPage companyName={detailLead} companies={companies} contacts={contacts} notes={notes} setNotes={setNotes} changeStage={changeStage} updateContactInfo={updateContactInfo} onBack={() => handleTabChange('Leads')} />}
+          {tab === 'Settings'     && <PlaceholderPage title="Settings" description="Ayarlar yakında eklenecek." />}
+        </main>
+      </div>
     </div>
   )
 }
@@ -1311,8 +1047,7 @@ function PipelineStageDetail({ stage, onClose, changeStage, onClickDetail, showL
   )
 }
 
-const ACTIVE_STAGES = ['reached_out','follow_up_1','follow_up_2','needs_reply','interested','referral_received','processing_meeting','meeting_scheduled','meeting_held']
-const CLOSED_STAGES = ['reschedule','no_answer','not_interested','bounce','wrong_person','out_of_office','competitor','spam']
+// ACTIVE_STAGES ve CLOSED_STAGES constants.js'den import ediliyor
 
 function PipelinePage({ contacts, searchQ, setSearchQ, changeStage, updateContactInfo, onNavigateCompanies }) {
   const [channel, setChannel] = useState('Email')
@@ -1993,12 +1728,7 @@ function ContactDetailModal({ email, onClose, onSave }) {
 
 // ═══════════════ ŞİRKET DETAY MODAL ═══════════════
 
-const MEETING_SOURCES = ['LinkedIn Outbound', 'Email Outbound', 'Smartlead Kampanyası', 'Referans / Inbound', 'Diğer']
-const HANDOFF_FIELDS = ['Dönüş Alan Mail', 'Yan Hak Paketleri', 'Geçmiş Şirketler (Partner Kontrolü)', 'Title & LinkedIn', 'Sustainable Reports', 'Org Chart (HR Yapısı)']
-const WARMTH_OPTIONS = ['Sıcak', 'Nötr', 'Soğuk']
-const WARMTH_COLORS = { 'Sıcak': '#EF4444', 'Nötr': '#F59E0B', 'Soğuk': '#3B82F6' }
-
-const isValidLinkedin = (val) => !val || val.includes('linkedin.com')
+// MEETING_SOURCES, HANDOFF_FIELDS, WARMTH_OPTIONS, WARMTH_COLORS, isValidLinkedin constants.js'den import ediliyor
 
 function CompanyDetailModal({ companyName, onClose }) {
   const [info, setInfo] = useState(null)
@@ -2188,27 +1918,16 @@ function CompanyDetailModal({ companyName, onClose }) {
   )
 }
 
-// ═══════════════ MODAL STYLES ═══════════════
+// MS, extractName constants.js ve helpers.js'den import ediliyor
 
-const MS = {
-  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: C.white, borderRadius: 14, padding: '1.5rem', maxWidth: 480, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: C.muted, padding: 4 },
-  infoGrid: { display: 'flex', flexDirection: 'column', gap: 10 },
-  field: {},
-  fieldLabel: { fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 },
-  fieldValue: { fontSize: 13, color: C.text },
-  input: { width: '100%', padding: '6px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, outline: 'none', boxSizing: 'border-box' },
-  textarea: { width: '100%', minHeight: 60, padding: '6px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 6, background: C.bg, color: C.text, outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' },
-}
+// ═══════════════ PLACEHOLDER SAYFA ═══════════════
 
-// ═══════════════ YARDIMCI ═══════════════
-
-function extractName(snippet, toHeader) {
-  const m = snippet.match(/Merhaba ([A-ZÇŞĞÜÖİ][a-zçşğüöı]+(?: [A-ZÇŞĞÜÖİ][a-zçşğüöı]+)?)/)
-  if (m) return m[1]
-  const t = toHeader.match(/"?([^"<,@]{3,})"?\s*</)
-  if (t) return t[1].trim()
-  return toHeader.split('@')[0]
+function PlaceholderPage({ title, description }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, color: C.muted }}>
+      <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>🚧</div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: C.text, marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 13 }}>{description}</div>
+    </div>
+  )
 }
