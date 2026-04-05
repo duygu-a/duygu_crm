@@ -42,8 +42,10 @@ const STAGE_META = {
 }
 
 // Excel stage → sistem stage eşleştirmesi
+// Excel → sistem stage eşleştirmesi
+// "no answer" hariç — Gmail classifier reached_out/follow_up_1/follow_up_2/no_answer
+// ayrımını gönderim sayısına göre zaten yapıyor, Excel'in genel "No Answer"ı bunu ezmemeli.
 const EXCEL_STAGE_MAP = {
-  'no answer':                       'no_answer',
   'meeting held':                    'meeting_held',
   'meeting scheduled':               'meeting_scheduled',
   'competitor':                      'competitor',
