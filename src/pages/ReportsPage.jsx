@@ -35,6 +35,8 @@ export default function ReportsPage({ contacts, stats, companies }) {
     reply: fc.filter(c => c.stage === 'needs_reply').length,
     sentEmails: fc.filter(c => c.sentCount > 0).length,
     receivedEmails: fc.filter(c => c.receivedCount > 0).length,
+    // Toplam aktif pipeline — tarih filtresinden bağımsız
+    totalActive: contacts.filter(c => ['reached_out','follow_up_1','follow_up_2','processing_meeting','interested','referral_received'].includes(c.stage)).length,
   }
 
   const reports = [
@@ -93,7 +95,7 @@ function ActivityOverview({ s, meetingSources, fc }) {
     { value: s.meetings + s.scheduled, label: 'Opportunities', sublabel: 'CREATED', color: '#3B82F6' },
     { value: s.meetings, label: 'Opportunities', sublabel: 'WON', color: '#3B82F6' },
     { value: s.reply, label: 'Needs Reply', sublabel: 'PENDING', color: '#F59E0B' },
-    { value: s.active, label: 'Active Pipeline', sublabel: 'IN PROGRESS', color: '#10B981' },
+    { value: s.totalActive, label: 'Active Pipeline', sublabel: 'TOTAL', color: '#10B981' },
     { value: 0, label: 'Outbound Calls', sublabel: 'ALL TYPES', color: '#3B82F6' },
   ]
 
@@ -155,7 +157,7 @@ function ActivityOverview({ s, meetingSources, fc }) {
         {[
           { label: 'Meeting Held', current: s.meetings, target: KPI.meetings },
           { label: 'Meeting Scheduled', current: s.meetings + (fc.filter(c => c.stage === 'meeting_scheduled').length), target: 50 },
-          { label: 'Aktif Pipeline', current: s.active, target: 200 },
+          { label: 'Aktif Pipeline', current: s.totalActive, target: 200 },
           { label: 'Yanıt Bekliyor', current: s.reply, target: 20 },
         ].map((k, i) => {
           const pct = Math.min((k.current / k.target) * 100, 100)

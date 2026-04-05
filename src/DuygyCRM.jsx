@@ -748,7 +748,7 @@ export default function DuygyCRM({ token, onLogout }) {
   const pageTitle = tab === 'LeadDetail' ? (detailLead || 'Lead Detail') : (PAGE_TITLES[tab] || tab)
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'DM Sans', sans-serif", color: C.text }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif", color: C.text }}>
       {/* SOL SIDEBAR */}
       <Sidebar
         activeTab={sidebarActiveTab}
@@ -969,7 +969,7 @@ function DashboardPage({ contacts, stats, weeklyC, overdue: rawOverdue, updateCo
   )
 }
 
-// ═══════════════ PIPELINE ═══════════════
+// Pipeline, Companies, Performans → src/pages/ altına taşındı (PipelineKanban.jsx, LeadsPage.jsx, ReportsPage.jsx)
 
 function PipelineStageDetail({ stage, onClose, changeStage, onClickDetail, showLimit, setShowLimit }) {
   const [expandedCompany, setExpandedCompany] = useState(null)

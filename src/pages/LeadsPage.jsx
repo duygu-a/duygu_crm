@@ -158,7 +158,7 @@ export default function LeadsPage({ companies, contacts, selCompanies, setSelCom
                   <tr key={c.name} style={{ borderBottom: `1px solid ${C.bg2}`, cursor: 'pointer', background: isSelected ? '#EDF5FF' : 'transparent', transition: 'background 0.08s' }}
                     onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = C.bg }}
                     onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
-                    onClick={() => toggleSelect(key)}>
+                    onClick={() => onNavigateDetail(c.name)}>
                     <td style={{ padding: '10px 10px 10px 14px', width: 36 }} onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(key)} style={{ cursor: 'pointer' }} />
                     </td>
